@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Epicenter Analysis Dashboard Snapshot</title>
+<style>
+:root {
+  color-scheme: light;
+  --ink: #1f2933;
+  --muted: #64748b;
+  --line: #d8dee8;
+  --panel: #ffffff;
+  --bg: #f4f7fb;
+  --accent: #16697a;
+  --accent-2: #db7f67;
+  --accent-3: #4f7cac;
+  --good: #2a9d8f;
+  --warn: #b7791f;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+header {
+  background: linear-gradient(135deg, #0f3340, #16697a 58%, #4f7cac);
+  color: white;
+  padding: 34px clamp(20px, 5vw, 72px) 28px;
+}
+.eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: 12px; opacity: .8; }
+h1 { margin: 8px 0 8px; font-size: clamp(30px, 5vw, 54px); line-height: 1.02; font-weight: 760; }
+.subtitle { max-width: 920px; color: #dbeafe; font-size: 17px; line-height: 1.5; }
+.privacy {
+  margin-top: 18px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 6px;
+  background: rgba(255,255,255,.1);
+  color: #eff6ff;
+  font-size: 13px;
+}
+main { padding: 22px clamp(16px, 4vw, 58px) 46px; }
+.tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.tab {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  padding: 9px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 650;
+}
+.tab.active { background: var(--accent); border-color: var(--accent); color: white; }
+.section { display: none; }
+.section.active { display: block; }
+.grid { display: grid; gap: 14px; }
+.kpis { grid-template-columns: repeat(6, minmax(130px, 1fr)); }
+.cards-2 { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(31, 41, 51, .06);
+}
+.kpi-value { font-size: 30px; line-height: 1; font-weight: 780; color: var(--accent); }
+.kpi-label { margin-top: 8px; font-weight: 700; }
+.kpi-note { margin-top: 4px; color: var(--muted); font-size: 12px; }
+h2 { margin: 24px 0 12px; font-size: 24px; }
+h3 { margin: 0 0 12px; font-size: 17px; }
+.note { color: var(--muted); line-height: 1.55; max-width: 980px; }
+.chart { width: 100%; min-height: 270px; }
+.table-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.search {
+  width: min(100%, 310px);
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; background: white; font-size: 13px; }
+th, td { padding: 10px 11px; border-bottom: 1px solid #edf1f7; text-align: left; vertical-align: top; }
+th { background: #eef4f8; cursor: pointer; white-space: nowrap; color: #243b53; }
+tr:hover td { background: #f8fafc; }
+.footer { margin-top: 28px; color: var(--muted); font-size: 12px; }
+@media (max-width: 1000px) {
+  .kpis, .cards-2 { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+}
+@media (max-width: 640px) {
+  .kpis, .cards-2 { grid-template-columns: 1fr; }
+  header { padding-top: 26px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class='eyebrow'>Static dashboard snapshot</div>
+  <h1>Epicenter Program Analysis</h1>
+  <p class='subtitle'>Aggregate analysis summary for wellbeing, anxiety/fear, pre-post change, and anomalous-experience group comparisons. This public snapshot is generated from de-identified aggregate outputs only.</p>
+  <div class='privacy'>Privacy gate: no raw workbook, participant IDs, names, free-text AE descriptions, or row-level cleaning records are included.</div>
+</header>
+<main>
+  <nav class='tabs' aria-label='Dashboard sections'>
+    <button class='tab active' data-tab='overview'>Overview</button>
+    <button class='tab' data-tab='baseline'>Baseline</button>
+    <button class='tab' data-tab='prepost'>Pre-post</button>
+    <button class='tab' data-tab='ae'>AE summaries</button>
+    <button class='tab' data-tab='quality'>Data quality</button>
+    <button class='tab' data-tab='sensitivity'>Sensitivity</button>
+  </nav>
+
+  <section id='overview' class='section active'>
+    <div id='kpis' class='grid kpis'></div>
+    <div class='grid cards-2'>
+      <div class='card'><h3>AE status</h3><div id='aeStatusChart'></div></div>
+      <div class='card'><h3>Pre-post effect sizes</h3><p class='note'>Rank-biserial effect sizes for item-wise full-sample pre-post tests. Positive values indicate improvement-coded change.</p><div id='prepostChart'></div></div>
+    </div>
+    <h2>Sample Characteristics</h2><div class='card' id='table-sample'></div>
+    <h2>AE Prevalence</h2><div class='card' id='table-aePrevalence'></div>
+  </section>
+
+  <section id='baseline' class='section'>
+    <h2>Baseline AE Comparisons</h2>
+    <p class='note'>Primary analyses compare AE yes vs. AE no only. The AE unknown group is handled separately in sensitivity analyses.</p>
+    <div class='card' id='table-baseline'></div>
+  </section>
+
+  <section id='prepost' class='section'>
+    <h2>Full Sample Pre-post Change</h2><div class='card' id='table-prepost'></div>
+    <h2>Pre-post Change by AE Group</h2><div class='card' id='table-changeByAe'></div>
+  </section>
+
+  <section id='ae' class='section'>
+    <div class='grid cards-2'>
+      <div class='card'><h3>AE type frequencies</h3><div id='aeTypeChart'></div></div>
+      <div class='card'><h3>Verification methods</h3><div id='verificationChart'></div></div>
+    </div>
+    <h2>AE Type Table</h2><div class='card' id='table-aeTypes'></div>
+    <h2>Verification Table</h2><div class='card' id='table-verification'></div>
+  </section>
+
+  <section id='quality' class='section'>
+    <h2>Age Correlations</h2><div class='card' id='table-age'></div>
+    <h2>Missingness by Item</h2><div class='card' id='table-missingness'></div>
+    <p class='note'>Row-number gaps and uncertain-age cases are summarized only. Exact row IDs and row-level cleaning records are withheld from the public snapshot.</p>
+  </section>
+
+  <section id='sensitivity' class='section'>
+    <h2>AE Unknown Recoding: Baseline Items</h2><div class='card' id='table-sensitivityBaseline'></div>
+    <h2>AE Unknown Recoding: Pre-post Change</h2><div class='card' id='table-sensitivityChange'></div>
+  </section>
+
+  <div class='footer'>Generated at <span id='generatedAt'></span>. Static HTML snapshot for GitHub Pages. Local Shiny dashboard remains available for private, participant-level review.</div>
+</main>
+<script>const DASHBOARD_DATA = {"generatedAt":"2026-06-04 20:40:34 NZST","kpis":[{"label":"Participants","value":186,"note":"Cleaned rows included in analysis"},{"label":"AE yes","value":54,"note":"29%"},{"label":"AE no","value":87,"note":"46.8%"},{"label":"AE unknown","value":45,"note":"24.2%"},{"label":"Age review flags","value":6,"note":"Approximate or uncertain ages"},{"label":"Missing row numbers","value":4,"note":"Count only; exact IDs withheld"}],"charts":{"aeStatus":[{"label":"Yes","value":54},{"label":"No","value":87},{"label":"Unknown","value":45}],"aeTypes":[{"label":"Entities beings","value":42},{"label":"Auditory","value":6},{"label":"Cosmological mystical","value":5},{"label":"Visual","value":5},{"label":"Deceased","value":3},{"label":"Precognitive dream","value":1}],"verification":[{"label":"Artwork only","value":12,"Percent":"22.2%"},{"label":"Both conversation and artwork","value":16,"Percent":"29.6%"},{"label":"Conversation only","value":24,"Percent":"44.4%"},{"label":"Witnessed directly by staff","value":1,"Percent":"1.9%"},{"label":null,"value":1,"Percent":"1.9%"}],"prepost":[{"label":"Item 1","value":0.3716},{"label":"Item 2","value":0.4209},{"label":"Item 3","value":0.0608},{"label":"Item 4","value":0.276},{"label":"Item 5","value":0.3049},{"label":"Item 6","value":0.2441},{"label":"Item 7","value":0.1432},{"label":"Item 8","value":0.0386},{"label":"Item 9","value":0.2369}]},"tables":{"sample":[{"AE status":"yes","N":54,"Age mean":"9.90","Age SD":"2.21","Age min":6,"Age max":15,"Age flags":1},{"AE status":"no","N":87,"Age mean":"8.98","Age SD":"2.08","Age min":5,"Age max":15,"Age flags":1},{"AE status":"unknown","N":45,"Age mean":"8.57","Age SD":"1.98","Age min":5,"Age max":13,"Age flags":4}],"aePrevalence":[{"AE status":"yes","N":54,"Percent":"29%"},{"AE status":"no","N":87,"Percent":"46.8%"},{"AE status":"unknown","N":45,"Percent":"24.2%"}],"baseline":[{"Item":1,"Outcome":"Confidence in myself","Focus":"Secondary","N yes":53,"N no":84,"Median IQR yes":"8.00 (6.00, 9.00)","Median IQR no":"8.25 (7.00, 10.00)","p":"0.0761","FDR p":"0.2283","Rank-biserial r":"-0.177","Effect size":"small"},{"Item":2,"Outcome":"Confidence in art","Focus":"Secondary","N yes":53,"N no":86,"Median IQR yes":"9.00 (7.00, 10.00)","Median IQR no":"9.00 (7.00, 10.00)","p":"0.7772","FDR p":"0.7772","Rank-biserial r":"0.027","Effect size":"negligible"},{"Item":3,"Outcome":"Confidence in social situations","Focus":"Secondary","N yes":53,"N no":84,"Median IQR yes":"6.00 (5.00, 9.00)","Median IQR no":"8.00 (5.00, 10.00)","p":"0.0095","FDR p":"0.0852","Rank-biserial r":"-0.260","Effect size":"small"},{"Item":4,"Outcome":"Confidence in self-expression","Focus":"Secondary","N yes":53,"N no":83,"Median IQR yes":"7.00 (5.00, 9.00)","Median IQR no":"8.00 (6.00, 10.00)","p":"0.0243","FDR p":"0.1094","Rank-biserial r":"-0.227","Effect size":"small"},{"Item":5,"Outcome":"I feel pressure to act differently in front of different people","Focus":"Core","N yes":53,"N no":84,"Median IQR yes":"7.00 (3.00, 10.00)","Median IQR no":"6.00 (3.00, 10.00)","p":"0.6329","FDR p":"0.7120","Rank-biserial r":"0.048","Effect size":"negligible"},{"Item":6,"Outcome":"I'm often anxious and/or afraid","Focus":"Core","N yes":53,"N no":85,"Median IQR yes":"5.00 (2.00, 8.00)","Median IQR no":"5.00 (2.00, 8.00)","p":"0.5164","FDR p":"0.6640","Rank-biserial r":"0.065","Effect size":"negligible"},{"Item":7,"Outcome":"How easy is it to describe how you feel?","Focus":"Secondary","N yes":53,"N no":86,"Median IQR yes":"6.00 (4.00, 8.00)","Median IQR no":"6.25 (5.00, 9.00)","p":"0.2717","FDR p":"0.6113","Rank-biserial r":"-0.110","Effect size":"small"},{"Item":8,"Outcome":"I care for/compliment myself as much as my friends","Focus":"Secondary","N yes":51,"N no":84,"Median IQR yes":"6.00 (4.00, 10.00)","Median IQR no":"8.00 (4.00, 10.00)","p":"0.4880","FDR p":"0.6640","Rank-biserial r":"-0.070","Effect size":"negligible"},{"Item":9,"Outcome":"I am creative","Focus":"Secondary","N yes":47,"N no":75,"Median IQR yes":"10.00 (10.00, 10.00)","Median IQR no":"10.00 (9.00, 10.00)","p":"0.4914","FDR p":"0.6640","Rank-biserial r":"0.057","Effect size":"negligible"}],"prepost":[{"Item":1,"Outcome":"Confidence in myself","Complete pairs":156,"Median IQR change":"0.00 (0.00, 1.00)","p":"0.0023","FDR p":"0.0103","Rank-biserial r":"0.372"},{"Item":2,"Outcome":"Confidence in art","Complete pairs":157,"Median IQR change":"0.00 (0.00, 1.00)","p":"0.0017","FDR p":"0.0103","Rank-biserial r":"0.421"},{"Item":3,"Outcome":"Confidence in social situations","Complete pairs":155,"Median IQR change":"0.00 (-1.00, 1.00)","p":"0.5969","FDR p":"0.6715","Rank-biserial r":"0.061"},{"Item":4,"Outcome":"Confidence in self-expression","Complete pairs":153,"Median IQR change":"0.00 (-1.00, 2.00)","p":"0.0159","FDR p":"0.0358","Rank-biserial r":"0.276"},{"Item":5,"Outcome":"I feel pressure to act differently in front of different people","Complete pairs":153,"Median IQR change":"0.00 (-1.00, 2.50)","p":"0.0060","FDR p":"0.0181","Rank-biserial r":"0.305"},{"Item":6,"Outcome":"I'm often anxious and/or afraid","Complete pairs":153,"Median IQR change":"0.00 (-1.00, 2.00)","p":"0.0254","FDR p":"0.0458","Rank-biserial r":"0.244"},{"Item":7,"Outcome":"How easy is it to describe how you feel?","Complete pairs":157,"Median IQR change":"0.00 (-1.00, 1.00)","p":"0.1898","FDR p":"0.2440","Rank-biserial r":"0.143"},{"Item":8,"Outcome":"I care for/compliment myself as much as my friends","Complete pairs":152,"Median IQR change":"0.00 (-1.00, 1.00)","p":"0.7537","FDR p":"0.7537","Rank-biserial r":"0.039"},{"Item":9,"Outcome":"I am creative","Complete pairs":139,"Median IQR change":"0.00 (0.00, 0.00)","p":"0.1852","FDR p":"0.2440","Rank-biserial r":"0.237"}],"changeByAe":[{"Item":1,"Outcome":"Confidence in myself","N yes":48,"N no":74,"Change yes":"0.00 (0.00, 1.50)","Change no":"0.00 (0.00, 1.00)","p":"0.1461","FDR p":"0.4104","Rank-biserial r":"0.149"},{"Item":2,"Outcome":"Confidence in art","N yes":48,"N no":75,"Change yes":"0.00 (0.00, 1.00)","Change no":"0.00 (0.00, 1.00)","p":"0.9096","FDR p":"0.9096","Rank-biserial r":"0.011"},{"Item":3,"Outcome":"Confidence in social situations","N yes":48,"N no":73,"Change yes":"0.00 (-0.50, 1.00)","Change no":"0.00 (-1.00, 1.00)","p":"0.3531","FDR p":"0.5296","Rank-biserial r":"0.097"},{"Item":4,"Outcome":"Confidence in self-expression","N yes":48,"N no":72,"Change yes":"0.50 (-0.50, 2.00)","Change no":"0.00 (-1.00, 1.00)","p":"0.0544","FDR p":"0.4104","Rank-biserial r":"0.203"},{"Item":5,"Outcome":"I feel pressure to act differently in front of different people","N yes":46,"N no":73,"Change yes":"0.00 (-1.00, 2.00)","Change no":"0.00 (-1.00, 2.00)","p":"0.8694","FDR p":"0.9096","Rank-biserial r":"-0.018"},{"Item":6,"Outcome":"I'm often anxious and/or afraid","N yes":46,"N no":74,"Change yes":"0.00 (0.00, 2.00)","Change no":"0.00 (-1.00, 2.00)","p":"0.2618","FDR p":"0.4713","Rank-biserial r":"0.121"},{"Item":7,"Outcome":"How easy is it to describe how you feel?","N yes":48,"N no":75,"Change yes":"0.00 (0.00, 2.00)","Change no":"0.00 (-1.00, 1.00)","p":"0.1824","FDR p":"0.4104","Rank-biserial r":"0.141"},{"Item":8,"Outcome":"I care for/compliment myself as much as my friends","N yes":45,"N no":73,"Change yes":"0.00 (-0.75, 1.00)","Change no":"0.00 (-1.00, 1.00)","p":"0.8641","FDR p":"0.9096","Rank-biserial r":"-0.018"},{"Item":9,"Outcome":"I am creative","N yes":43,"N no":64,"Change yes":"0.00 (0.00, 0.00)","Change no":"0.00 (0.00, 0.00)","p":"0.1030","FDR p":"0.4104","Rank-biserial r":"-0.150"}],"aeTypes":[{"AE type":"Entities beings","N":42},{"AE type":"Auditory","N":6},{"AE type":"Cosmological mystical","N":5},{"AE type":"Visual","N":5},{"AE type":"Deceased","N":3},{"AE type":"Precognitive dream","N":1}],"verification":[{"Verification method":"Artwork only","N":12,"Percent":"22.2%"},{"Verification method":"Both conversation and artwork","N":16,"Percent":"29.6%"},{"Verification method":"Conversation only","N":24,"Percent":"44.4%"},{"Verification method":"Witnessed directly by staff","N":1,"Percent":"1.9%"},{"Verification method":null,"N":1,"Percent":"1.9%"}],"age":[{"Outcome":"PRE Item 6 anxiety/fear","N":166,"Spearman rho":"0.172","p":"0.0267","Bonferroni p":"0.0535"},{"Outcome":"PRE wellbeing composite","N":168,"Spearman rho":"-0.373","p":"0.0000","Bonferroni p":"0.0000"}],"missingness":[{"Timepoint":"PRE","Item":1,"Outcome":"Confidence in myself","Available N":180,"Missing N":6,"Missing percent":"3.2%"},{"Timepoint":"PRE","Item":2,"Outcome":"Confidence in art","Available N":182,"Missing N":4,"Missing percent":"2.2%"},{"Timepoint":"PRE","Item":3,"Outcome":"Confidence in social situations","Available N":180,"Missing N":6,"Missing percent":"3.2%"},{"Timepoint":"PRE","Item":4,"Outcome":"Confidence in self-expression","Available N":179,"Missing N":7,"Missing percent":"3.8%"},{"Timepoint":"PRE","Item":5,"Outcome":"I feel pressure to act differently in front of different people","Available N":180,"Missing N":6,"Missing percent":"3.2%"},{"Timepoint":"PRE","Item":6,"Outcome":"I'm often anxious and/or afraid","Available N":180,"Missing N":6,"Missing percent":"3.2%"},{"Timepoint":"PRE","Item":7,"Outcome":"How easy is it to describe how you feel?","Available N":182,"Missing N":4,"Missing percent":"2.2%"},{"Timepoint":"PRE","Item":8,"Outcome":"I care for/compliment myself as much as my friends","Available N":178,"Missing N":8,"Missing percent":"4.3%"},{"Timepoint":"PRE","Item":9,"Outcome":"I am creative","Available N":160,"Missing N":26,"Missing percent":"14%"},{"Timepoint":"POST","Item":1,"Outcome":"Confidence in myself","Available N":159,"Missing N":27,"Missing percent":"14.5%"},{"Timepoint":"POST","Item":2,"Outcome":"Confidence in art","Available N":159,"Missing N":27,"Missing percent":"14.5%"},{"Timepoint":"POST","Item":3,"Outcome":"Confidence in social situations","Available N":159,"Missing N":27,"Missing percent":"14.5%"},{"Timepoint":"POST","Item":4,"Outcome":"Confidence in self-expression","Available N":157,"Missing N":29,"Missing percent":"15.6%"},{"Timepoint":"POST","Item":5,"Outcome":"I feel pressure to act differently in front of different people","Available N":156,"Missing N":30,"Missing percent":"16.1%"},{"Timepoint":"POST","Item":6,"Outcome":"I'm often anxious and/or afraid","Available N":156,"Missing N":30,"Missing percent":"16.1%"},{"Timepoint":"POST","Item":7,"Outcome":"How easy is it to describe how you feel?","Available N":158,"Missing N":28,"Missing percent":"15.1%"},{"Timepoint":"POST","Item":8,"Outcome":"I care for/compliment myself as much as my friends","Available N":158,"Missing N":28,"Missing percent":"15.1%"},{"Timepoint":"POST","Item":9,"Outcome":"I am creative","Available N":154,"Missing N":32,"Missing percent":"17.2%"}],"sensitivityBaseline":[{"Scenario":"unknown_as_no","Item":1,"Outcome":"Confidence in myself","N yes":53,"N no":127,"p":"0.2203","FDR p":"0.5709","Rank-biserial r":"-0.114"},{"Scenario":"unknown_as_no","Item":2,"Outcome":"Confidence in art","N yes":53,"N no":129,"p":"0.6209","FDR p":"0.7127","Rank-biserial r":"0.044"},{"Scenario":"unknown_as_no","Item":3,"Outcome":"Confidence in social situations","N yes":53,"N no":127,"p":"0.0849","FDR p":"0.3819","Rank-biserial r":"-0.161"},{"Scenario":"unknown_as_no","Item":4,"Outcome":"Confidence in self-expression","N yes":53,"N no":126,"p":"0.0712","FDR p":"0.3819","Rank-biserial r":"-0.169"},{"Scenario":"unknown_as_no","Item":5,"Outcome":"I feel pressure to act differently in front of different people","N yes":53,"N no":127,"p":"0.6744","FDR p":"0.7127","Rank-biserial r":"0.039"},{"Scenario":"unknown_as_no","Item":6,"Outcome":"I'm often anxious and/or afraid","N yes":53,"N no":127,"p":"0.7127","FDR p":"0.7127","Rank-biserial r":"0.035"},{"Scenario":"unknown_as_no","Item":7,"Outcome":"How easy is it to describe how you feel?","N yes":53,"N no":129,"p":"0.3139","FDR p":"0.5709","Rank-biserial r":"-0.094"},{"Scenario":"unknown_as_no","Item":8,"Outcome":"I care for/compliment myself as much as my friends","N yes":51,"N no":127,"p":"0.6340","FDR p":"0.7127","Rank-biserial r":"-0.045"},{"Scenario":"unknown_as_no","Item":9,"Outcome":"I am creative","N yes":47,"N no":113,"p":"0.3172","FDR p":"0.5709","Rank-biserial r":"0.079"},{"Scenario":"unknown_as_yes","Item":1,"Outcome":"Confidence in myself","N yes":96,"N no":84,"p":"0.0449","FDR p":"0.1347","Rank-biserial r":"-0.170"},{"Scenario":"unknown_as_yes","Item":2,"Outcome":"Confidence in art","N yes":96,"N no":86,"p":"0.9075","FDR p":"0.9290","Rank-biserial r":"-0.010"},{"Scenario":"unknown_as_yes","Item":3,"Outcome":"Confidence in social situations","N yes":96,"N no":84,"p":"0.0013","FDR p":"0.0115","Rank-biserial r":"-0.276"},{"Scenario":"unknown_as_yes","Item":4,"Outcome":"Confidence in self-expression","N yes":96,"N no":83,"p":"0.0255","FDR p":"0.1148","Rank-biserial r":"-0.191"},{"Scenario":"unknown_as_yes","Item":5,"Outcome":"I feel pressure to act differently in front of different people","N yes":96,"N no":84,"p":"0.6088","FDR p":"0.7828","Rank-biserial r":"0.044"},{"Scenario":"unknown_as_yes","Item":6,"Outcome":"I'm often anxious and/or afraid","N yes":95,"N no":85,"p":"0.3619","FDR p":"0.6164","Rank-biserial r":"0.078"},{"Scenario":"unknown_as_yes","Item":7,"Outcome":"How easy is it to describe how you feel?","N yes":96,"N no":86,"p":"0.3346","FDR p":"0.6164","Rank-biserial r":"-0.082"},{"Scenario":"unknown_as_yes","Item":8,"Outcome":"I care for/compliment myself as much as my friends","N yes":94,"N no":84,"p":"0.4110","FDR p":"0.6164","Rank-biserial r":"-0.070"},{"Scenario":"unknown_as_yes","Item":9,"Outcome":"I am creative","N yes":85,"N no":75,"p":"0.9290","FDR p":"0.9290","Rank-biserial r":"0.007"}],"sensitivityChange":[{"Scenario":"unknown_as_no","Item":1,"Outcome":"Confidence in myself","N yes":48,"N no":108,"p":"0.2168","FDR p":"0.4879","Rank-biserial r":"0.119"},{"Scenario":"unknown_as_no","Item":2,"Outcome":"Confidence in art","N yes":48,"N no":109,"p":"0.8924","FDR p":"0.9314","Rank-biserial r":"0.013"},{"Scenario":"unknown_as_no","Item":3,"Outcome":"Confidence in social situations","N yes":48,"N no":107,"p":"0.6741","FDR p":"0.8667","Rank-biserial r":"0.041"},{"Scenario":"unknown_as_no","Item":4,"Outcome":"Confidence in self-expression","N yes":48,"N no":105,"p":"0.1145","FDR p":"0.4879","Rank-biserial r":"0.156"},{"Scenario":"unknown_as_no","Item":5,"Outcome":"I feel pressure to act differently in front of different people","N yes":46,"N no":107,"p":"0.6626","FDR p":"0.8667","Rank-biserial r":"-0.044"},{"Scenario":"unknown_as_no","Item":6,"Outcome":"I'm often anxious and/or afraid","N yes":46,"N no":107,"p":"0.3694","FDR p":"0.6650","Rank-biserial r":"0.091"},{"Scenario":"unknown_as_no","Item":7,"Outcome":"How easy is it to describe how you feel?","N yes":48,"N no":109,"p":"0.2088","FDR p":"0.4879","Rank-biserial r":"0.124"},{"Scenario":"unknown_as_no","Item":8,"Outcome":"I care for/compliment myself as much as my friends","N yes":45,"N no":107,"p":"0.9314","FDR p":"0.9314","Rank-biserial r":"0.009"},{"Scenario":"unknown_as_no","Item":9,"Outcome":"I am creative","N yes":43,"N no":96,"p":"0.1624","FDR p":"0.4879","Rank-biserial r":"-0.120"},{"Scenario":"unknown_as_yes","Item":1,"Outcome":"Confidence in myself","N yes":82,"N no":74,"p":"0.1731","FDR p":"0.3894","Rank-biserial r":"0.121"},{"Scenario":"unknown_as_yes","Item":2,"Outcome":"Confidence in art","N yes":82,"N no":75,"p":"0.9755","FDR p":"0.9755","Rank-biserial r":"0.003"},{"Scenario":"unknown_as_yes","Item":3,"Outcome":"Confidence in social situations","N yes":82,"N no":73,"p":"0.1679","FDR p":"0.3894","Rank-biserial r":"0.125"},{"Scenario":"unknown_as_yes","Item":4,"Outcome":"Confidence in self-expression","N yes":81,"N no":72,"p":"0.0818","FDR p":"0.3894","Rank-biserial r":"0.160"},{"Scenario":"unknown_as_yes","Item":5,"Outcome":"I feel pressure to act differently in front of different people","N yes":80,"N no":73,"p":"0.8009","FDR p":"0.9010","Rank-biserial r":"0.023"},{"Scenario":"unknown_as_yes","Item":6,"Outcome":"I'm often anxious and/or afraid","N yes":79,"N no":74,"p":"0.2668","FDR p":"0.4002","Rank-biserial r":"0.103"},{"Scenario":"unknown_as_yes","Item":7,"Outcome":"How easy is it to describe how you feel?","N yes":82,"N no":75,"p":"0.2391","FDR p":"0.4002","Rank-biserial r":"0.107"},{"Scenario":"unknown_as_yes","Item":8,"Outcome":"I care for/compliment myself as much as my friends","N yes":79,"N no":73,"p":"0.6219","FDR p":"0.7996","Rank-biserial r":"-0.045"},{"Scenario":"unknown_as_yes","Item":9,"Outcome":"I am creative","N yes":75,"N no":64,"p":"0.1181","FDR p":"0.3894","Rank-biserial r":"-0.124"}]}};</script>
+<script>
+const data = DASHBOARD_DATA;
+const fmt = new Intl.NumberFormat();
+
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  Object.entries(attrs).forEach(([k, v]) => {
+    if (k === 'class') node.className = v;
+    else if (k === 'html') node.innerHTML = v;
+    else node.setAttribute(k, v);
+  });
+  [].concat(children).forEach(child => node.append(child));
+  return node;
+}
+
+function renderKpis() {
+  const root = document.getElementById('kpis');
+  data.kpis.forEach(k => {
+    root.append(el('div', { class: 'card' }, [
+      el('div', { class: 'kpi-value' }, [fmt.format(k.value)]),
+      el('div', { class: 'kpi-label' }, [k.label]),
+      el('div', { class: 'kpi-note' }, [k.note])
+    ]));
+  });
+}
+
+function renderBarChart(targetId, rows, opts = {}) {
+  const target = document.getElementById(targetId);
+  const width = 760;
+  const rowH = opts.rowH || 34;
+  const left = opts.left || 190;
+  const right = 36;
+  const top = 18;
+  const height = top * 2 + rows.length * rowH;
+  const max = Math.max(...rows.map(d => Math.abs(Number(d.value) || 0)), 1);
+  const color = opts.color || '#16697a';
+  let svg = `<svg viewBox='0 0 ${width} ${height}' class='chart' role='img'>`;
+  rows.forEach((d, i) => {
+    const y = top + i * rowH;
+    const val = Number(d.value) || 0;
+    const barW = Math.max(2, Math.abs(val) / max * (width - left - right));
+    svg += `<text x='12' y='${y + 20}' font-size='13' fill='#334155'>${escapeHtml(d.label)}</text>`;
+    svg += `<rect x='${left}' y='${y + 5}' width='${barW}' height='18' rx='4' fill='${color}'></rect>`;
+    svg += `<text x='${left + barW + 8}' y='${y + 20}' font-size='13' fill='#334155'>${val.toFixed(opts.decimals ?? 0)}</text>`;
+  });
+  svg += '</svg>';
+  target.innerHTML = svg;
+}
+
+function renderDivergingChart(targetId, rows) {
+  const target = document.getElementById(targetId);
+  const width = 760, height = 360, left = 92, right = 40, top = 24, rowH = 34;
+  const mid = left + (width - left - right) / 2;
+  const max = Math.max(...rows.map(d => Math.abs(Number(d.value) || 0)), .1);
+  let svg = `<svg viewBox='0 0 ${width} ${height}' class='chart' role='img'>`;
+  svg += `<line x1='${mid}' x2='${mid}' y1='12' y2='${height - 20}' stroke='#94a3b8'></line>`;
+  rows.forEach((d, i) => {
+    const y = top + i * rowH;
+    const val = Number(d.value) || 0;
+    const barW = Math.abs(val) / max * ((width - left - right) / 2);
+    const x = val >= 0 ? mid : mid - barW;
+    const color = val >= 0 ? '#2a9d8f' : '#db7f67';
+    svg += `<text x='12' y='${y + 20}' font-size='13' fill='#334155'>${escapeHtml(d.label)}</text>`;
+    svg += `<rect x='${x}' y='${y + 5}' width='${Math.max(2, barW)}' height='18' rx='4' fill='${color}'></rect>`;
+    svg += `<text x='${val >= 0 ? x + barW + 6 : x - 46}' y='${y + 20}' font-size='13' fill='#334155'>${val.toFixed(2)}</text>`;
+  });
+  svg += '</svg>';
+  target.innerHTML = svg;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+}
+
+function renderTable(targetId, rows) {
+  const target = document.getElementById(targetId);
+  const columns = rows.length ? Object.keys(rows[0]) : [];
+  const input = el('input', { class: 'search', placeholder: 'Search table' });
+  const count = el('span', { class: 'note' });
+  const table = el('table');
+  const thead = el('thead');
+  const tbody = el('tbody');
+  let sortKey = columns[0];
+  let sortDir = 1;
+
+  const headerRow = el('tr');
+  columns.forEach(col => {
+    const th = el('th', {}, [col]);
+    th.addEventListener('click', () => {
+      if (sortKey === col) sortDir *= -1;
+      else { sortKey = col; sortDir = 1; }
+      draw();
+    });
+    headerRow.append(th);
+  });
+  thead.append(headerRow);
+  table.append(thead, tbody);
+  target.append(el('div', { class: 'table-tools' }, [input, count]), el('div', { class: 'table-wrap' }, [table]));
+
+  input.addEventListener('input', draw);
+
+  function draw() {
+    const q = input.value.toLowerCase();
+    let filtered = rows.filter(row => Object.values(row).join(' ').toLowerCase().includes(q));
+    filtered = filtered.sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      const an = Number(av), bn = Number(bv);
+      if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * sortDir;
+      return String(av ?? '').localeCompare(String(bv ?? '')) * sortDir;
+    });
+    tbody.innerHTML = '';
+    filtered.forEach(row => {
+      const tr = el('tr');
+      columns.forEach(col => tr.append(el('td', {}, [escapeHtml(row[col])])));
+      tbody.append(tr);
+    });
+    count.textContent = `${filtered.length} rows`;
+  }
+  draw();
+}
+
+function setupTabs() {
+  document.querySelectorAll('.tab').forEach(button => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.tab, .section').forEach(x => x.classList.remove('active'));
+      button.classList.add('active');
+      document.getElementById(button.dataset.tab).classList.add('active');
+    });
+  });
+}
+
+renderKpis();
+renderBarChart('aeStatusChart', data.charts.aeStatus, { color: '#16697a', left: 120 });
+renderBarChart('aeTypeChart', data.charts.aeTypes, { color: '#4f7cac', left: 230 });
+renderBarChart('verificationChart', data.charts.verification, { color: '#db7f67', left: 245 });
+renderDivergingChart('prepostChart', data.charts.prepost);
+Object.entries(data.tables).forEach(([key, rows]) => renderTable(`table-${key}`, rows));
+setupTabs();
+document.getElementById('generatedAt').textContent = data.generatedAt;
+</script>
+</body>
+</html>
