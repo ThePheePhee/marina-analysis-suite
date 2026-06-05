@@ -47,6 +47,67 @@ sensitivity_baseline <- read_output("sensitivity_baseline_pre_items_unknown_reco
 sensitivity_change <- read_output("sensitivity_prepost_change_unknown_recode.csv")
 missing_ids <- read_output("missing_participant_ids_for_review.csv")
 
+read_private_processed <- function(name) {
+  path <- file.path("data", "processed", name)
+  if (!file.exists(path)) {
+    stop("Missing required processed file: ", path, "\nRun scripts/run_all.R first.", call. = FALSE)
+  }
+  readr::read_csv(path, show_col_types = FALSE)
+}
+
+participants_private <- read_private_processed("participant_analysis.csv")
+item_long_private <- read_private_processed("item_long.csv")
+
+box_summary <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) {
+    return(tibble::tibble(n = 0, min = NA_real_, q1 = NA_real_, median = NA_real_, q3 = NA_real_, max = NA_real_))
+  }
+
+  qs <- stats::quantile(x, probs = c(0, 0.25, 0.5, 0.75, 1), names = FALSE, type = 2)
+  tibble::tibble(
+    n = length(x),
+    min = qs[1],
+    q1 = qs[2],
+    median = qs[3],
+    q3 = qs[4],
+    max = qs[5]
+  )
+}
+
+pre_item6_box <- item_long_private |>
+  dplyr::filter(timepoint == "pre", item == 6) |>
+  dplyr::left_join(
+    participants_private |> dplyr::select(participant_id, ae_status_primary),
+    by = "participant_id"
+  ) |>
+  dplyr::filter(ae_status_primary %in% c("yes", "no")) |>
+  dplyr::group_by(ae_status_primary) |>
+  dplyr::summarise(box_summary(score), .groups = "drop") |>
+  dplyr::transmute(
+    label = paste("AE", ae_status_primary),
+    n,
+    min,
+    q1,
+    median,
+    q3,
+    max
+  )
+
+pre_wellbeing_box <- participants_private |>
+  dplyr::filter(ae_status_primary %in% c("yes", "no")) |>
+  dplyr::group_by(ae_status_primary) |>
+  dplyr::summarise(box_summary(wellbeing_composite_pre), .groups = "drop") |>
+  dplyr::transmute(
+    label = paste("AE", ae_status_primary),
+    n,
+    min,
+    q1,
+    median,
+    q3,
+    max
+  )
+
 total_n <- sum(ae_prev$n, na.rm = TRUE)
 yes_n <- ae_prev$n[match("yes", ae_prev$ae_status)]
 no_n <- ae_prev$n[match("no", ae_prev$ae_status)]
@@ -193,7 +254,9 @@ chart_data <- list(
   verification = verification_table |>
     dplyr::rename(label = `Verification method`, value = N),
   prepost = prepost |>
-    dplyr::transmute(label = paste0("Item ", item), value = rank_biserial_r)
+    dplyr::transmute(label = paste0("Item ", item), value = rank_biserial_r),
+  preItem6Box = pre_item6_box,
+  preWellbeingBox = pre_wellbeing_box
 )
 
 dashboard_data <- list(
@@ -294,6 +357,7 @@ h2 { margin: 24px 0 12px; font-size: 24px; }
 h3 { margin: 0 0 12px; font-size: 17px; }
 .note { color: var(--muted); line-height: 1.55; max-width: 980px; }
 .chart { width: 100%; min-height: 270px; }
+.box-chart { width: 100%; min-height: 280px; }
 .table-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .search {
   width: min(100%, 310px);
@@ -386,6 +450,46 @@ function renderDivergingChart(targetId, rows) {
   target.innerHTML = svg;
 }
 
+function renderBoxChart(targetId, rows, opts = {}) {
+  const target = document.getElementById(targetId);
+  const width = 760, height = 300;
+  const margin = { top: 24, right: 34, bottom: 44, left: 54 };
+  const innerW = width - margin.left - margin.right;
+  const innerH = height - margin.top - margin.bottom;
+  const values = rows.flatMap(d => [d.min, d.q1, d.median, d.q3, d.max].map(Number).filter(Number.isFinite));
+  const minVal = opts.min ?? Math.floor(Math.min(...values, 1));
+  const maxVal = opts.max ?? Math.ceil(Math.max(...values, 10));
+  const scaleY = v => margin.top + (maxVal - v) / (maxVal - minVal) * innerH;
+  const groupW = innerW / rows.length;
+  const boxW = Math.min(100, groupW * 0.46);
+  let svg = `<svg viewBox='0 0 ${width} ${height}' class='box-chart' role='img'>`;
+  svg += `<line x1='${margin.left}' x2='${width - margin.right}' y1='${height - margin.bottom}' y2='${height - margin.bottom}' stroke='#94a3b8'></line>`;
+  svg += `<line x1='${margin.left}' x2='${margin.left}' y1='${margin.top}' y2='${height - margin.bottom}' stroke='#94a3b8'></line>`;
+  [minVal, (minVal + maxVal) / 2, maxVal].forEach(tick => {
+    const y = scaleY(tick);
+    svg += `<line x1='${margin.left - 5}' x2='${width - margin.right}' y1='${y}' y2='${y}' stroke='#e2e8f0'></line>`;
+    svg += `<text x='${margin.left - 10}' y='${y + 4}' text-anchor='end' font-size='12' fill='#64748b'>${tick.toFixed(1)}</text>`;
+  });
+  rows.forEach((d, i) => {
+    const cx = margin.left + groupW * i + groupW / 2;
+    const yMin = scaleY(Number(d.min));
+    const yQ1 = scaleY(Number(d.q1));
+    const yMed = scaleY(Number(d.median));
+    const yQ3 = scaleY(Number(d.q3));
+    const yMax = scaleY(Number(d.max));
+    const color = i === 0 ? '#16697a' : '#db7f67';
+    svg += `<line x1='${cx}' x2='${cx}' y1='${yMax}' y2='${yMin}' stroke='${color}' stroke-width='2'></line>`;
+    svg += `<line x1='${cx - boxW * .28}' x2='${cx + boxW * .28}' y1='${yMax}' y2='${yMax}' stroke='${color}' stroke-width='2'></line>`;
+    svg += `<line x1='${cx - boxW * .28}' x2='${cx + boxW * .28}' y1='${yMin}' y2='${yMin}' stroke='${color}' stroke-width='2'></line>`;
+    svg += `<rect x='${cx - boxW / 2}' y='${yQ3}' width='${boxW}' height='${Math.max(1, yQ1 - yQ3)}' rx='5' fill='${color}' opacity='.22' stroke='${color}' stroke-width='2'></rect>`;
+    svg += `<line x1='${cx - boxW / 2}' x2='${cx + boxW / 2}' y1='${yMed}' y2='${yMed}' stroke='${color}' stroke-width='3'></line>`;
+    svg += `<text x='${cx}' y='${height - 18}' text-anchor='middle' font-size='13' fill='#334155'>${escapeHtml(d.label)} (n=${d.n})</text>`;
+  });
+  svg += `<text x='${width / 2}' y='${height - 2}' text-anchor='middle' font-size='12' fill='#64748b'>${escapeHtml(opts.caption || '')}</text>`;
+  svg += '</svg>';
+  target.innerHTML = svg;
+}
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',\"'\":'&#39;','\"':'&quot;'}[c]));
 }
@@ -452,6 +556,8 @@ renderBarChart('aeStatusChart', data.charts.aeStatus, { color: '#16697a', left: 
 renderBarChart('aeTypeChart', data.charts.aeTypes, { color: '#4f7cac', left: 230 });
 renderBarChart('verificationChart', data.charts.verification, { color: '#db7f67', left: 245 });
 renderDivergingChart('prepostChart', data.charts.prepost);
+renderBoxChart('preItem6BoxChart', data.charts.preItem6Box, { min: 1, max: 10, caption: 'PRE Item 6 score' });
+renderBoxChart('preWellbeingBoxChart', data.charts.preWellbeingBox, { min: 1, max: 10, caption: 'PRE wellbeing composite' });
 Object.entries(data.tables).forEach(([key, rows]) => renderTable(`table-${key}`, rows));
 setupTabs();
 document.getElementById('generatedAt').textContent = data.generatedAt;
@@ -496,6 +602,10 @@ html <- paste0(
   <section id='baseline' class='section'>
     <h2>Baseline AE Comparisons</h2>
     <p class='note'>Primary analyses compare AE yes vs. AE no only. The AE unknown group is handled separately in sensitivity analyses.</p>
+    <div class='grid cards-2'>
+      <div class='card'><h3>PRE Item 6 anxiety/fear: box-and-whisker summary</h3><p class='note'>Static privacy-preserving version of the local dashboard plot. Whiskers and boxes are computed from aggregate five-number summaries; no participant-level points are published.</p><div id='preItem6BoxChart'></div></div>
+      <div class='card'><h3>PRE composite wellbeing: box-and-whisker summary</h3><p class='note'>Higher composite values indicate better wellbeing after reverse-scoring negatively valenced items.</p><div id='preWellbeingBoxChart'></div></div>
+    </div>
     <div class='card' id='table-baseline'></div>
   </section>
 
