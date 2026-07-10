@@ -6,5 +6,6 @@ source("scripts/03_primary_baseline.R")
 source("scripts/04_prepost_change.R")
 source("scripts/05_exploratory_age_type_verification.R")
 source("scripts/06_sensitivity_ae_unknown.R")
+source("scripts/07_key_differences.R")
 
 message("Full analysis pipeline complete.")

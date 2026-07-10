@@ -45,6 +45,8 @@ ae_type_freq <- read_optional_csv(project_file("outputs", "tables", "ae_type_fre
 verification_freq <- read_optional_csv(project_file("outputs", "tables", "verification_method_frequencies.csv"))
 sensitivity_baseline <- read_optional_csv(project_file("outputs", "tables", "sensitivity_baseline_pre_items_unknown_recode.csv"))
 sensitivity_change <- read_optional_csv(project_file("outputs", "tables", "sensitivity_prepost_change_unknown_recode.csv"))
+key_differences <- read_optional_csv(project_file("outputs", "tables", "key_ae_differences_ranked.csv"))
+key_fields_controls <- read_optional_csv(project_file("outputs", "tables", "key_difference_fields_and_controls.csv"))
 
 has_data <- nrow(participants) > 0 && nrow(item_long) > 0
 
@@ -77,6 +79,7 @@ ui <- dashboardPage(
       menuItem("Distributions", tabName = "distributions", icon = icon("chart-area")),
       menuItem("Baseline AE Tests", tabName = "baseline", icon = icon("table")),
       menuItem("Pre-Post Change", tabName = "prepost", icon = icon("arrows-rotate")),
+      menuItem("Key Differences", tabName = "keydiff", icon = icon("magnifying-glass-chart")),
       menuItem("AE Types", tabName = "types", icon = icon("shapes")),
       menuItem("Sensitivity", tabName = "sensitivity", icon = icon("sliders"))
     )
@@ -88,6 +91,22 @@ ui <- dashboardPage(
       .box { border-radius: 6px; border-top-width: 2px; }
       .empty-state { padding: 28px; color: #555; }
       .dataTables_wrapper { font-size: 13px; }
+      .interpretation-card {
+        border: 1px solid #d8dee8;
+        border-radius: 6px;
+        padding: 12px 13px;
+        margin-bottom: 12px;
+        background: #ffffff;
+      }
+      .interpretation-card h4 {
+        margin: 0 0 5px;
+        font-weight: 700;
+      }
+      .interpretation-meta {
+        color: #64748b;
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
     "))),
     tabItems(
       tabItem(
@@ -134,6 +153,24 @@ ui <- dashboardPage(
           box(width = 6, title = "Full-Sample PRE to POST Tests", status = "primary", solidHeader = TRUE, DTOutput("prepost_table")),
           box(width = 6, title = "Change by AE Group", status = "primary", solidHeader = TRUE, DTOutput("change_by_ae_table")),
           box(width = 12, title = "Change Scores by Item", status = "primary", plotlyOutput("change_plot"))
+        )
+      ),
+      tabItem(
+        tabName = "keydiff",
+        if (nrow(key_differences) == 0) empty_panel() else fluidRow(
+          box(
+            width = 12,
+            title = "How to Read This Tab",
+            status = "primary",
+            solidHeader = TRUE,
+            p("This tab ranks the largest observed differences between AE-yes and AE-no participants across baseline PRE items, PRE composites, and PRE-to-POST change scores."),
+            p("Primary ranking uses rank-biserial effect size from AE yes vs AE no nonparametric comparisons. Exploratory adjusted models are included for context: baseline outcomes control for age; change outcomes control for age and baseline score."),
+            p("Interpret all findings as observational associations, not causal effects. AE status was identified informally, and several possible confounders were not available in the workbook.")
+          ),
+          box(width = 7, title = "Largest AE vs Non-AE Differences", status = "primary", solidHeader = TRUE, plotlyOutput("key_difference_plot")),
+          box(width = 5, title = "Top Interpretations", status = "primary", solidHeader = TRUE, uiOutput("top_difference_interpretations")),
+          box(width = 12, title = "Fields Analyzed and Controls Used", status = "primary", solidHeader = TRUE, DTOutput("fields_controls_table")),
+          box(width = 12, title = "Ranked Difference Table", status = "primary", solidHeader = TRUE, DTOutput("key_difference_table"))
         )
       ),
       tabItem(
@@ -261,6 +298,96 @@ server <- function(input, output) {
       labs(x = "Item", y = "Change, scored so positive = improvement") +
       theme_minimal(base_size = 12)
     ggplotly(p)
+  })
+
+  output$key_difference_plot <- renderPlotly({
+    validate(need(nrow(key_differences) > 0, "Run scripts/07_key_differences.R first."))
+
+    plot_data <- key_differences |>
+      arrange(desc(absolute_effect_size)) |>
+      slice_head(n = 12) |>
+      mutate(
+        short_field = stringr::str_trunc(field_analyzed, width = 54),
+        direction_label = case_when(
+          median_difference > 0 ~ "AE yes higher",
+          median_difference < 0 ~ "AE yes lower",
+          TRUE ~ "same median"
+        )
+      )
+
+    p <- plot_data |>
+      ggplot(aes(
+        x = reorder(short_field, absolute_effect_size),
+        y = absolute_effect_size,
+        fill = direction_label,
+        text = paste0(
+          field_analyzed,
+          "<br>Family: ", family,
+          "<br>Median AE yes: ", round(median_yes, 2),
+          "<br>Median AE no: ", round(median_no, 2),
+          "<br>Rank-biserial r: ", round(rank_biserial_r, 3),
+          "<br>FDR p: ", fdr_p_text,
+          "<br>Controls: ", controls
+        )
+      )) +
+      geom_col() +
+      coord_flip() +
+      scale_fill_manual(values = c("AE yes higher" = "#1f77b4", "AE yes lower" = "#e76f51", "same median" = "#8c8c8c")) +
+      labs(x = NULL, y = "|rank-biserial r|", fill = NULL) +
+      theme_minimal(base_size = 12)
+
+    ggplotly(p, tooltip = "text")
+  })
+
+  output$top_difference_interpretations <- renderUI({
+    validate(need(nrow(key_differences) > 0, "Run scripts/07_key_differences.R first."))
+
+    top_rows <- key_differences |>
+      arrange(desc(absolute_effect_size)) |>
+      slice_head(n = 5)
+
+    tagList(
+      purrr::pmap(
+        top_rows,
+        function(family, field_analyzed, outcome, direction, scale_note, controls,
+                 n_yes, n_no, median_yes, median_no, median_difference, mean_difference,
+                 p_value, p_fdr, rank_biserial_r, adjusted_estimate, adjusted_p,
+                 adjusted_n, effect_size_label, absolute_effect_size, adjusted_p_text,
+                 p_text, fdr_p_text, interpretation, ...) {
+          div(
+            class = "interpretation-card",
+            h4(field_analyzed),
+            tags$div(
+              class = "interpretation-meta",
+              paste0(
+                family,
+                " | n yes=", n_yes,
+                ", n no=", n_no,
+                " | r=", round(rank_biserial_r, 3),
+                " (", effect_size_label, ")"
+              )
+            ),
+            p(interpretation)
+          )
+        }
+      )
+    )
+  })
+
+  output$fields_controls_table <- renderDT({
+    key_fields_controls |>
+      datatable(options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE)
+  })
+
+  output$key_difference_table <- renderDT({
+    key_differences |>
+      select(
+        family, field_analyzed, scale_note, controls,
+        n_yes, n_no, median_yes, median_no, median_difference,
+        rank_biserial_r, effect_size_label, p_text, fdr_p_text,
+        adjusted_estimate, adjusted_p_text, interpretation
+      ) |>
+      datatable(filter = "top", options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE)
   })
 
   output$ae_type_plot <- renderPlotly({
