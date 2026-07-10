@@ -46,6 +46,7 @@ verification_freq <- read_optional_csv(project_file("outputs", "tables", "verifi
 sensitivity_baseline <- read_optional_csv(project_file("outputs", "tables", "sensitivity_baseline_pre_items_unknown_recode.csv"))
 sensitivity_change <- read_optional_csv(project_file("outputs", "tables", "sensitivity_prepost_change_unknown_recode.csv"))
 key_differences <- read_optional_csv(project_file("outputs", "tables", "key_ae_differences_ranked.csv"))
+second_order_changes <- read_optional_csv(project_file("outputs", "tables", "second_order_change_differences.csv"))
 key_fields_controls <- read_optional_csv(project_file("outputs", "tables", "key_difference_fields_and_controls.csv"))
 
 has_data <- nrow(participants) > 0 && nrow(item_long) > 0
@@ -163,12 +164,16 @@ ui <- dashboardPage(
             title = "How to Read This Tab",
             status = "primary",
             solidHeader = TRUE,
-            p("This tab ranks the largest observed differences between AE-yes and AE-no participants across baseline PRE items, PRE composites, and PRE-to-POST change scores."),
-            p("Primary ranking uses rank-biserial effect size from AE yes vs AE no nonparametric comparisons. Exploratory adjusted models are included for context: baseline outcomes control for age; change outcomes control for age and baseline score."),
+            p("This tab emphasizes second-order differences: outcomes where AE-yes and AE-no participants changed differently from PRE to POST."),
+            p("Change scores are improvement-coded, so positive values mean improvement. The second-order contrast is the AE-yes mean change minus the AE-no mean change."),
+            p("Unadjusted group comparisons use Mann-Whitney/rank-biserial effect sizes. Exploratory adjusted models control for age and baseline score."),
             p("Interpret all findings as observational associations, not causal effects. AE status was identified informally, and several possible confounders were not available in the workbook.")
           ),
-          box(width = 7, title = "Largest AE vs Non-AE Differences", status = "primary", solidHeader = TRUE, plotlyOutput("key_difference_plot")),
-          box(width = 5, title = "Top Interpretations", status = "primary", solidHeader = TRUE, uiOutput("top_difference_interpretations")),
+          box(width = 7, title = "Second-Order Changes: Which Outcomes Changed Differently?", status = "primary", solidHeader = TRUE, plotlyOutput("second_order_plot")),
+          box(width = 5, title = "Top Change-Contrast Interpretations", status = "primary", solidHeader = TRUE, uiOutput("second_order_interpretations")),
+          box(width = 12, title = "Second-Order Change Contrast Table", status = "primary", solidHeader = TRUE, DTOutput("second_order_table")),
+          box(width = 7, title = "All AE vs Non-AE Differences", status = "primary", solidHeader = TRUE, plotlyOutput("key_difference_plot")),
+          box(width = 5, title = "Top Overall Interpretations", status = "primary", solidHeader = TRUE, uiOutput("top_difference_interpretations")),
           box(width = 12, title = "Fields Analyzed and Controls Used", status = "primary", solidHeader = TRUE, DTOutput("fields_controls_table")),
           box(width = 12, title = "Ranked Difference Table", status = "primary", solidHeader = TRUE, DTOutput("key_difference_table"))
         )
@@ -337,6 +342,95 @@ server <- function(input, output) {
       theme_minimal(base_size = 12)
 
     ggplotly(p, tooltip = "text")
+  })
+
+  output$second_order_plot <- renderPlotly({
+    validate(need(nrow(second_order_changes) > 0, "Run scripts/07_key_differences.R first."))
+
+    plot_data <- second_order_changes |>
+      arrange(desc(absolute_effect_size)) |>
+      slice_head(n = 9) |>
+      mutate(
+        short_field = stringr::str_trunc(field_analyzed, width = 52),
+        contrast_direction = case_when(
+          change_contrast > 0 ~ "AE yes improved more",
+          change_contrast < 0 ~ "AE yes improved less",
+          TRUE ~ "Same mean change"
+        )
+      )
+
+    p <- plot_data |>
+      ggplot(aes(
+        x = reorder(short_field, change_contrast),
+        y = change_contrast,
+        fill = contrast_direction,
+        text = paste0(
+          field_analyzed,
+          "<br>Mean change AE yes: ", round(mean_yes, 2),
+          "<br>Mean change AE no: ", round(mean_no, 2),
+          "<br>Difference-in-change: ", round(change_contrast, 2),
+          "<br>Rank-biserial r: ", round(rank_biserial_r, 3),
+          "<br>FDR p: ", fdr_p_text,
+          "<br>Adjusted estimate: ", round(adjusted_estimate, 3),
+          "<br>Adjusted p: ", adjusted_p_text
+        )
+      )) +
+      geom_hline(yintercept = 0, color = "#777777") +
+      geom_col() +
+      coord_flip() +
+      scale_fill_manual(values = c("AE yes improved more" = "#1f77b4", "AE yes improved less" = "#e76f51", "Same mean change" = "#8c8c8c")) +
+      labs(x = NULL, y = "AE yes mean change minus AE no mean change", fill = NULL) +
+      theme_minimal(base_size = 12)
+
+    ggplotly(p, tooltip = "text")
+  })
+
+  output$second_order_interpretations <- renderUI({
+    validate(need(nrow(second_order_changes) > 0, "Run scripts/07_key_differences.R first."))
+
+    top_rows <- second_order_changes |>
+      arrange(desc(absolute_effect_size)) |>
+      slice_head(n = 5)
+
+    tagList(
+      purrr::pmap(
+        top_rows,
+        function(field_analyzed, outcome, scale_note, controls,
+                 n_yes, n_no, median_yes, median_no, median_difference,
+                 mean_yes, mean_no, change_contrast, change_pattern,
+                 rank_biserial_r, effect_size_label, absolute_effect_size,
+                 p_value, p_fdr, p_text, fdr_p_text,
+                 adjusted_estimate, adjusted_p, adjusted_p_text, adjusted_n,
+                 interpretation, ...) {
+          div(
+            class = "interpretation-card",
+            h4(field_analyzed),
+            tags$div(
+              class = "interpretation-meta",
+              paste0(
+                change_pattern,
+                " | mean contrast=", round(change_contrast, 2),
+                " | r=", round(rank_biserial_r, 3),
+                " (", effect_size_label, ")"
+              )
+            ),
+            p(interpretation)
+          )
+        }
+      )
+    )
+  })
+
+  output$second_order_table <- renderDT({
+    second_order_changes |>
+      select(
+        field_analyzed, scale_note, controls, change_pattern,
+        n_yes, n_no, mean_yes, mean_no, change_contrast,
+        median_yes, median_no, median_difference,
+        rank_biserial_r, effect_size_label, p_text, fdr_p_text,
+        adjusted_estimate, adjusted_p_text, interpretation
+      ) |>
+      datatable(filter = "top", options = list(pageLength = 12, scrollX = TRUE), rownames = FALSE)
   })
 
   output$top_difference_interpretations <- renderUI({

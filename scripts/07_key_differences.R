@@ -188,7 +188,7 @@ baseline_records <- baseline_tests |>
   dplyr::select(
     family, field_analyzed, outcome, direction, scale_note, controls,
     n_yes, n_no, median_yes, median_no, median_difference, mean_difference,
-    p_value, p_fdr, rank_biserial_r, adjusted_estimate, adjusted_p, adjusted_n
+    mean_yes, mean_no, p_value, p_fdr, rank_biserial_r, adjusted_estimate, adjusted_p, adjusted_n
   )
 
 composite_data <- participants |>
@@ -304,7 +304,7 @@ change_records <- change_tests |>
   dplyr::select(
     family, field_analyzed, outcome, direction, scale_note, controls,
     n_yes, n_no, median_yes, median_no, median_difference, mean_difference,
-    p_value, p_fdr, rank_biserial_r, adjusted_estimate, adjusted_p, adjusted_n
+    mean_yes, mean_no, p_value, p_fdr, rank_biserial_r, adjusted_estimate, adjusted_p, adjusted_n
   )
 
 key_differences <- dplyr::bind_rows(baseline_records, composite_records, change_records) |>
@@ -320,6 +320,49 @@ key_differences <- dplyr::bind_rows(baseline_records, composite_records, change_
     )
   ) |>
   dplyr::arrange(dplyr::desc(absolute_effect_size), p_value)
+
+second_order_change_differences <- change_records |>
+  dplyr::mutate(
+    effect_size_label = effect_label(rank_biserial_r),
+    absolute_effect_size = abs(rank_biserial_r),
+    adjusted_p_text = p_text(adjusted_p),
+    p_text = p_text(p_value),
+    fdr_p_text = p_text(p_fdr),
+    change_contrast = mean_difference,
+    change_pattern = dplyr::case_when(
+      is.na(mean_difference) ~ "Could not estimate",
+      mean_difference > 0 ~ "AE yes improved more",
+      mean_difference < 0 ~ "AE yes improved less",
+      TRUE ~ "Same mean change"
+    ),
+    interpretation = dplyr::case_when(
+      is.na(mean_difference) ~ "The group difference in change could not be estimated.",
+      mean_difference > 0 ~ paste0(
+        "AE-yes participants changed more positively than AE-no participants on this outcome. ",
+        "Because change is improvement-coded, this suggests a larger observed improvement in the AE group. ",
+        "The exploratory adjusted model controls for age and baseline score; adjusted p ", adjusted_p_text, "."
+      ),
+      mean_difference < 0 ~ paste0(
+        "AE-yes participants changed less positively than AE-no participants on this outcome. ",
+        "Because change is improvement-coded, this suggests a smaller observed improvement, or more worsening, in the AE group. ",
+        "The exploratory adjusted model controls for age and baseline score; adjusted p ", adjusted_p_text, "."
+      ),
+      TRUE ~ paste0(
+        "The mean change was the same across groups, though the rank-based comparison may still reflect distributional differences. ",
+        "The exploratory adjusted model controls for age and baseline score; adjusted p ", adjusted_p_text, "."
+      )
+    )
+  ) |>
+  dplyr::arrange(dplyr::desc(absolute_effect_size), p_value) |>
+  dplyr::select(
+    field_analyzed, outcome, scale_note, controls,
+    n_yes, n_no, median_yes, median_no, median_difference,
+    mean_yes, mean_no, change_contrast, change_pattern,
+    rank_biserial_r, effect_size_label, absolute_effect_size,
+    p_value, p_fdr, p_text, fdr_p_text,
+    adjusted_estimate, adjusted_p, adjusted_p_text, adjusted_n,
+    interpretation
+  )
 
 fields_analyzed <- tibble::tibble(
   analysis_block = c(
@@ -360,6 +403,7 @@ fields_analyzed <- tibble::tibble(
 )
 
 write_csv_safe(key_differences, "outputs/tables/key_ae_differences_ranked.csv")
+write_csv_safe(second_order_change_differences, "outputs/tables/second_order_change_differences.csv")
 write_csv_safe(fields_analyzed, "outputs/tables/key_difference_fields_and_controls.csv")
 
 message("Key AE difference summaries written to outputs/tables/.")
