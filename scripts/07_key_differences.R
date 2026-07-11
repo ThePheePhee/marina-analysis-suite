@@ -37,6 +37,41 @@ effect_label <- function(r) {
   )
 }
 
+answer_direction_text <- function(label, direction, pre, post, group_label) {
+  if (is.na(pre) || is.na(post)) {
+    return(paste0(group_label, ": original-scale change could not be estimated."))
+  }
+
+  delta <- post - pre
+  construct <- dplyr::case_when(
+    label == "I'm often anxious and/or afraid" ~ "anxiety/fear",
+    label == "I feel pressure to act differently in front of different people" ~ "social pressure",
+    label == "How easy is it to describe how you feel?" ~ "ease describing feelings",
+    label == "I care for/compliment myself as much as my friends" ~ "self-compassion",
+    label == "I am creative" ~ "self-rated creativity",
+    TRUE ~ stringr::str_to_lower(label)
+  )
+  movement <- dplyr::case_when(
+    delta > 0 ~ "increased",
+    delta < 0 ~ "decreased",
+    TRUE ~ "did not change"
+  )
+  implication <- dplyr::case_when(
+    delta == 0 ~ "the average level was unchanged",
+    direction == "higher_worse" & delta < 0 ~ paste0("less ", construct, " (an improvement)"),
+    direction == "higher_worse" & delta > 0 ~ paste0("more ", construct, " (a worsening)"),
+    delta > 0 ~ paste0("more ", construct, " (an improvement)"),
+    TRUE ~ paste0("less ", construct, " (a worsening)")
+  )
+
+  paste0(
+    group_label, ": mean answer ", movement, " from ",
+    formatC(pre, format = "f", digits = 2), " to ",
+    formatC(post, format = "f", digits = 2), " (",
+    sprintf("%+.2f", delta), "), indicating ", implication, "."
+  )
+}
+
 safe_lm_ae <- function(data, formula) {
   dat <- data |>
     dplyr::filter(!is.na(ae_yes_indicator))
@@ -275,6 +310,25 @@ change_descriptives <- change_scores |>
     names_glue = "{.value}_{ae_status_primary}"
   )
 
+original_scale_change <- change_scores |>
+  dplyr::filter(ae_status_primary %in% c("yes", "no"), !is.na(change)) |>
+  dplyr::mutate(
+    original_pre = dplyr::if_else(direction == "higher_worse", 11 - pre, pre),
+    original_post = dplyr::if_else(direction == "higher_worse", 11 - post, post)
+  ) |>
+  dplyr::group_by(item, short_name, label, direction, ae_status_primary) |>
+  dplyr::summarise(
+    original_pre_mean = mean(original_pre, na.rm = TRUE),
+    original_post_mean = mean(original_post, na.rm = TRUE),
+    original_answer_change = original_post_mean - original_pre_mean,
+    .groups = "drop"
+  ) |>
+  tidyr::pivot_wider(
+    names_from = ae_status_primary,
+    values_from = c(original_pre_mean, original_post_mean, original_answer_change),
+    names_glue = "{.value}_{ae_status_primary}"
+  )
+
 change_adjusted <- change_scores |>
   dplyr::left_join(
     participants |> dplyr::select(participant_id, age),
@@ -292,6 +346,7 @@ change_records <- change_tests |>
     by = "item"
   ) |>
   dplyr::left_join(change_adjusted |> dplyr::select(item, adjusted_estimate, adjusted_p, adjusted_n), by = "item") |>
+  dplyr::left_join(original_scale_change, by = c("item", "short_name", "label", "direction")) |>
   dplyr::mutate(
     family = "Pre-post change",
     outcome = label,
@@ -299,12 +354,27 @@ change_records <- change_tests |>
     controls = "Age and baseline score",
     median_difference = median_yes - median_no,
     mean_difference = mean_yes - mean_no,
-    scale_note = "Change is scored so positive values indicate improvement."
+    scale_note = dplyr::case_when(
+      direction == "higher_worse" ~ "Original answer: higher means more distress. Improvement-coded change reverses this item.",
+      TRUE ~ "Original answer: higher means more wellbeing. Improvement-coded change retains this direction."
+    ),
+    ae_yes_answer_change = purrr::pmap_chr(
+      list(label, direction, original_pre_mean_yes, original_post_mean_yes),
+      ~ answer_direction_text(..1, ..2, ..3, ..4, "AE yes")
+    ),
+    ae_no_answer_change = purrr::pmap_chr(
+      list(label, direction, original_pre_mean_no, original_post_mean_no),
+      ~ answer_direction_text(..1, ..2, ..3, ..4, "AE no")
+    )
   ) |>
   dplyr::select(
     family, field_analyzed, outcome, direction, scale_note, controls,
     n_yes, n_no, median_yes, median_no, median_difference, mean_difference,
-    mean_yes, mean_no, p_value, p_fdr, rank_biserial_r, adjusted_estimate, adjusted_p, adjusted_n
+    mean_yes, mean_no,
+    original_pre_mean_yes, original_post_mean_yes, original_answer_change_yes,
+    original_pre_mean_no, original_post_mean_no, original_answer_change_no,
+    ae_yes_answer_change, ae_no_answer_change,
+    p_value, p_fdr, rank_biserial_r, adjusted_estimate, adjusted_p, adjusted_n
   )
 
 key_differences <- dplyr::bind_rows(baseline_records, composite_records, change_records) |>
@@ -358,6 +428,9 @@ second_order_change_differences <- change_records |>
     field_analyzed, outcome, scale_note, controls,
     n_yes, n_no, median_yes, median_no, median_difference,
     mean_yes, mean_no, change_contrast, change_pattern,
+    original_pre_mean_yes, original_post_mean_yes, original_answer_change_yes,
+    original_pre_mean_no, original_post_mean_no, original_answer_change_no,
+    ae_yes_answer_change, ae_no_answer_change,
     rank_biserial_r, effect_size_label, absolute_effect_size,
     p_value, p_fdr, p_text, fdr_p_text,
     adjusted_estimate, adjusted_p, adjusted_p_text, adjusted_n,

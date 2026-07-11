@@ -48,6 +48,13 @@ sensitivity_change <- read_optional_csv(project_file("outputs", "tables", "sensi
 key_differences <- read_optional_csv(project_file("outputs", "tables", "key_ae_differences_ranked.csv"))
 second_order_changes <- read_optional_csv(project_file("outputs", "tables", "second_order_change_differences.csv"))
 key_fields_controls <- read_optional_csv(project_file("outputs", "tables", "key_difference_fields_and_controls.csv"))
+observation_age_effects <- read_optional_csv(project_file("outputs", "tables", "observation_age_change_effects.csv"))
+observation_age_ae <- read_optional_csv(project_file("outputs", "tables", "observation_age_ae_interactions.csv"))
+observation_baseline_ae <- read_optional_csv(project_file("outputs", "tables", "observation_baseline_ae_interactions.csv"))
+observation_ae_types <- read_optional_csv(project_file("outputs", "tables", "observation_ae_type_change_models.csv"))
+observation_verification <- read_optional_csv(project_file("outputs", "tables", "observation_verification_change_models.csv"))
+observation_scan <- read_optional_csv(project_file("outputs", "tables", "observation_exploratory_scan.csv"))
+observation_ae_age <- read_optional_csv(project_file("outputs", "tables", "observation_ae_age_prevalence.csv"))
 
 has_data <- nrow(participants) > 0 && nrow(item_long) > 0
 
@@ -81,6 +88,7 @@ ui <- dashboardPage(
       menuItem("Baseline AE Tests", tabName = "baseline", icon = icon("table")),
       menuItem("Pre-Post Change", tabName = "prepost", icon = icon("arrows-rotate")),
       menuItem("Key Differences", tabName = "keydiff", icon = icon("magnifying-glass-chart")),
+      menuItem("Observations", tabName = "observations", icon = icon("lightbulb")),
       menuItem("AE Types", tabName = "types", icon = icon("shapes")),
       menuItem("Sensitivity", tabName = "sensitivity", icon = icon("sliders"))
     )
@@ -107,6 +115,21 @@ ui <- dashboardPage(
         color: #64748b;
         font-size: 12px;
         margin-bottom: 6px;
+      }
+      .change-detail {
+        border-left: 3px solid #2a7f9e;
+        padding-left: 10px;
+        margin: 8px 0;
+      }
+      .evidence-label {
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 4px;
+        background: #eef2f7;
+        color: #344054;
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 7px;
       }
     "))),
     tabItems(
@@ -176,6 +199,27 @@ ui <- dashboardPage(
           box(width = 5, title = "Top Overall Interpretations", status = "primary", solidHeader = TRUE, uiOutput("top_difference_interpretations")),
           box(width = 12, title = "Fields Analyzed and Controls Used", status = "primary", solidHeader = TRUE, DTOutput("fields_controls_table")),
           box(width = 12, title = "Ranked Difference Table", status = "primary", solidHeader = TRUE, DTOutput("key_difference_table"))
+        )
+      ),
+      tabItem(
+        tabName = "observations",
+        if (nrow(observation_scan) == 0) empty_panel() else fluidRow(
+          box(
+            width = 12,
+            title = "Scope and Statistical Guardrails",
+            status = "primary",
+            solidHeader = TRUE,
+            p("This is a broad exploratory scan of observed PRE-to-POST change. It is not an estimate of causal intervention impact because the dataset has no untreated control group."),
+            p("Models examine age, AE-by-age interactions, AE-by-baseline interactions, AE types, and verification methods. Change is improvement-coded and models adjust for baseline score; age or AE status is also included where appropriate."),
+            p("Raw p-values are shown to surface hypotheses. Family FDR corrects within each model family; global FDR corrects across the entire exploratory scan. Treat a raw p < .05 without FDR support as a lead for future study, not a finding."),
+            p("Baseline-by-AE interactions deserve extra caution because the change score itself contains baseline; regression-to-the-mean and ceiling effects can create or distort these patterns.")
+          ),
+          box(width = 12, title = "Most Interesting Observations", status = "primary", solidHeader = TRUE, uiOutput("observation_highlights")),
+          box(width = 7, title = "Age Effects on Observed Change", status = "primary", solidHeader = TRUE, plotlyOutput("observation_age_plot")),
+          box(width = 5, title = "Age and AE Context", status = "primary", solidHeader = TRUE, uiOutput("observation_age_context")),
+          box(width = 12, title = "Exploratory Signal Scanner", status = "primary", solidHeader = TRUE, DTOutput("observation_scan_table")),
+          box(width = 6, title = "AE Interactions with Age and Baseline", status = "primary", solidHeader = TRUE, DTOutput("observation_interaction_table")),
+          box(width = 6, title = "AE Type and Verification Patterns", status = "primary", solidHeader = TRUE, DTOutput("observation_context_table"))
         )
       ),
       tabItem(
@@ -312,7 +356,9 @@ server <- function(input, output) {
       arrange(desc(absolute_effect_size)) |>
       slice_head(n = 12) |>
       mutate(
-        short_field = stringr::str_trunc(field_analyzed, width = 54),
+        short_field = field_analyzed |>
+          stringr::str_replace("^Change Item ", "Item ") |>
+          stringr::str_trunc(width = 38),
         direction_label = case_when(
           median_difference > 0 ~ "AE yes higher",
           median_difference < 0 ~ "AE yes lower",
@@ -341,7 +387,8 @@ server <- function(input, output) {
       labs(x = NULL, y = "|rank-biserial r|", fill = NULL) +
       theme_minimal(base_size = 12)
 
-    ggplotly(p, tooltip = "text")
+    ggplotly(p, tooltip = "text") |>
+      plotly::layout(margin = list(l = 205, r = 10, b = 60, t = 25))
   })
 
   output$second_order_plot <- renderPlotly({
@@ -351,7 +398,9 @@ server <- function(input, output) {
       arrange(desc(absolute_effect_size)) |>
       slice_head(n = 9) |>
       mutate(
-        short_field = stringr::str_trunc(field_analyzed, width = 52),
+        short_field = field_analyzed |>
+          stringr::str_replace("^Change Item ", "Item ") |>
+          stringr::str_trunc(width = 38),
         contrast_direction = case_when(
           change_contrast > 0 ~ "AE yes improved more",
           change_contrast < 0 ~ "AE yes improved less",
@@ -368,6 +417,9 @@ server <- function(input, output) {
           field_analyzed,
           "<br>Mean change AE yes: ", round(mean_yes, 2),
           "<br>Mean change AE no: ", round(mean_no, 2),
+          "<br>Original answer AE yes: ", round(original_pre_mean_yes, 2), " -> ", round(original_post_mean_yes, 2),
+          "<br>Original answer AE no: ", round(original_pre_mean_no, 2), " -> ", round(original_post_mean_no, 2),
+          "<br>", scale_note,
           "<br>Difference-in-change: ", round(change_contrast, 2),
           "<br>Rank-biserial r: ", round(rank_biserial_r, 3),
           "<br>FDR p: ", fdr_p_text,
@@ -382,7 +434,8 @@ server <- function(input, output) {
       labs(x = NULL, y = "AE yes mean change minus AE no mean change", fill = NULL) +
       theme_minimal(base_size = 12)
 
-    ggplotly(p, tooltip = "text")
+    ggplotly(p, tooltip = "text") |>
+      plotly::layout(margin = list(l = 205, r = 10, b = 75, t = 25))
   })
 
   output$second_order_interpretations <- renderUI({
@@ -398,6 +451,9 @@ server <- function(input, output) {
         function(field_analyzed, outcome, scale_note, controls,
                  n_yes, n_no, median_yes, median_no, median_difference,
                  mean_yes, mean_no, change_contrast, change_pattern,
+                 original_pre_mean_yes, original_post_mean_yes, original_answer_change_yes,
+                 original_pre_mean_no, original_post_mean_no, original_answer_change_no,
+                 ae_yes_answer_change, ae_no_answer_change,
                  rank_biserial_r, effect_size_label, absolute_effect_size,
                  p_value, p_fdr, p_text, fdr_p_text,
                  adjusted_estimate, adjusted_p, adjusted_p_text, adjusted_n,
@@ -414,6 +470,13 @@ server <- function(input, output) {
                 " (", effect_size_label, ")"
               )
             ),
+            tags$div(
+              class = "change-detail",
+              tags$strong("What actually changed"),
+              p(ae_yes_answer_change),
+              p(ae_no_answer_change)
+            ),
+            p(tags$strong("How the item is scored: "), scale_note),
             p(interpretation)
           )
         }
@@ -426,6 +489,9 @@ server <- function(input, output) {
       select(
         field_analyzed, scale_note, controls, change_pattern,
         n_yes, n_no, mean_yes, mean_no, change_contrast,
+        original_pre_mean_yes, original_post_mean_yes, original_answer_change_yes,
+        original_pre_mean_no, original_post_mean_no, original_answer_change_no,
+        ae_yes_answer_change, ae_no_answer_change,
         median_yes, median_no, median_difference,
         rank_biserial_r, effect_size_label, p_text, fdr_p_text,
         adjusted_estimate, adjusted_p_text, interpretation
@@ -482,6 +548,141 @@ server <- function(input, output) {
         adjusted_estimate, adjusted_p_text, interpretation
       ) |>
       datatable(filter = "top", options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE)
+  })
+
+  output$observation_highlights <- renderUI({
+    confirmed <- prepost_tests |>
+      filter(!is.na(p_fdr), p_fdr < 0.05) |>
+      arrange(p_fdr)
+
+    exploratory <- observation_scan |>
+      filter(!is.na(p_value), p_value < 0.05) |>
+      arrange(p_value) |>
+      slice_head(n = 6)
+
+    tagList(
+      div(
+        class = "interpretation-card",
+        h4(paste0(nrow(confirmed), " full-sample changes survive item-wise FDR correction")),
+        tags$span(class = "evidence-label", "FDR-supported within the planned PRE-to-POST family"),
+        p(paste(confirmed$label, collapse = "; ")),
+        p("These are observed improvements in art confidence, self-confidence, social-pressure relief, self-expression, and anxiety/fear. Without a comparison group, they cannot be attributed solely to the program.")
+      ),
+      purrr::pmap(
+        exploratory,
+        function(analysis_family, field_analyzed, effect_name, effect_scale, controls,
+                 estimate, conf_low, conf_high, statistic, partial_r, n,
+                 p_value, p_family_fdr, interpretation, p_global_fdr,
+                 evidence, p_text, family_fdr_text, global_fdr_text, ...) {
+          div(
+            class = "interpretation-card",
+            h4(field_analyzed),
+            tags$span(class = "evidence-label", evidence),
+            tags$div(
+              class = "interpretation-meta",
+              paste0(
+                analysis_family, " | n=", n,
+                " | raw p ", p_text,
+                " | family FDR ", family_fdr_text,
+                " | global FDR ", global_fdr_text
+              )
+            ),
+            p(interpretation),
+            p(tags$strong("Controlled for: "), controls)
+          )
+        }
+      )
+    )
+  })
+
+  output$observation_age_plot <- renderPlotly({
+    validate(need(nrow(observation_age_effects) > 0, "Run scripts/08_observations.R first."))
+
+    plot_data <- observation_age_effects |>
+      mutate(
+        short_field = stringr::str_trunc(field_analyzed, width = 48),
+        evidence = case_when(
+          p_family_fdr < 0.05 ~ "Family FDR < .05",
+          p_value < 0.05 ~ "Raw p < .05 only",
+          TRUE ~ "No nominal signal"
+        )
+      )
+
+    p <- plot_data |>
+      ggplot(aes(
+        x = reorder(short_field, estimate), y = estimate, color = evidence,
+        text = paste0(
+          field_analyzed,
+          "<br>Age slope: ", round(estimate, 3),
+          "<br>95% CI: ", round(conf_low, 3), " to ", round(conf_high, 3),
+          "<br>Raw p: ", formatC(p_value, format = "f", digits = 3),
+          "<br>Family FDR: ", formatC(p_family_fdr, format = "f", digits = 3),
+          "<br>", controls
+        )
+      )) +
+      geom_hline(yintercept = 0, color = "#777777") +
+      geom_errorbar(aes(ymin = conf_low, ymax = conf_high), width = 0.2) +
+      geom_point(size = 3) +
+      coord_flip() +
+      scale_color_manual(values = c("Family FDR < .05" = "#167d5a", "Raw p < .05 only" = "#c46b20", "No nominal signal" = "#78828c")) +
+      labs(x = NULL, y = "Adjusted improvement change per additional year", color = NULL) +
+      theme_minimal(base_size = 12)
+
+    ggplotly(p, tooltip = "text")
+  })
+
+  output$observation_age_context <- renderUI({
+    validate(need(nrow(observation_ae_age) > 0, "Age context not available."))
+    strongest_age <- observation_age_effects |>
+      arrange(p_value) |>
+      slice_head(n = 3)
+    age_row <- observation_ae_age |> slice_head(n = 1)
+
+    tagList(
+      div(
+        class = "interpretation-card",
+        h4("Does AE prevalence vary with age?"),
+        p(age_row$interpretation),
+        tags$div(class = "interpretation-meta", paste0("Raw p ", ifelse(age_row$p_value < 0.001, "< .001", paste0("= ", round(age_row$p_value, 3))), " | n=", age_row$n))
+      ),
+      div(
+        class = "interpretation-card",
+        h4("Strongest age-change leads"),
+        p(paste(strongest_age$interpretation, collapse = " ")),
+        p("These age slopes are adjusted associations, not evidence that age causes a different program effect.")
+      )
+    )
+  })
+
+  output$observation_scan_table <- renderDT({
+    observation_scan |>
+      select(
+        evidence, analysis_family, field_analyzed, effect_name, estimate,
+        partial_r, n, p_text, family_fdr_text, global_fdr_text,
+        controls, interpretation
+      ) |>
+      datatable(filter = "top", options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE)
+  })
+
+  output$observation_interaction_table <- renderDT({
+    bind_rows(observation_age_ae, observation_baseline_ae) |>
+      arrange(p_value) |>
+      select(
+        analysis_family, field_analyzed, effect_name, estimate, conf_low, conf_high,
+        partial_r, n, p_value, p_family_fdr, controls, interpretation
+      ) |>
+      datatable(filter = "top", options = list(pageLength = 12, scrollX = TRUE), rownames = FALSE)
+  })
+
+  output$observation_context_table <- renderDT({
+    bind_rows(
+      observation_ae_types |>
+        select(analysis_family, field_analyzed, estimate, partial_r, n, p_value, p_family_fdr, controls, interpretation),
+      observation_verification |>
+        select(analysis_family, field_analyzed, estimate, partial_r, n, p_value, p_family_fdr, controls, interpretation)
+    ) |>
+      arrange(p_value) |>
+      datatable(filter = "top", options = list(pageLength = 12, scrollX = TRUE), rownames = FALSE)
   })
 
   output$ae_type_plot <- renderPlotly({
