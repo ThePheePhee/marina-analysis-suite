@@ -55,6 +55,10 @@ observation_ae_types <- read_optional_csv(project_file("outputs", "tables", "obs
 observation_verification <- read_optional_csv(project_file("outputs", "tables", "observation_verification_change_models.csv"))
 observation_scan <- read_optional_csv(project_file("outputs", "tables", "observation_exploratory_scan.csv"))
 observation_ae_age <- read_optional_csv(project_file("outputs", "tables", "observation_ae_age_prevalence.csv"))
+ae_atlas_observations <- read_optional_csv(project_file("outputs", "tables", "ae_atlas_observations.csv"))
+ae_atlas_inventory <- read_optional_csv(project_file("outputs", "tables", "ae_atlas_inventory.csv"))
+ae_atlas_global <- read_optional_csv(project_file("outputs", "tables", "ae_atlas_global_tests.csv"))
+overall_signals <- read_optional_csv(project_file("outputs", "tables", "overall_signal_observations.csv"))
 
 has_data <- nrow(participants) > 0 && nrow(item_long) > 0
 
@@ -77,6 +81,56 @@ item_choices <- if (nrow(item_long) > 0) {
   c("Item 6: anxiety/fear" = 6)
 }
 
+atlas_section_choices <- if (nrow(ae_atlas_observations) > 0) {
+  sections <- unique(ae_atlas_observations$section)
+  c("All sections" = "__all__", stats::setNames(sections, sections))
+} else {
+  c("All sections" = "__all__")
+}
+
+atlas_evidence_choices <- if (nrow(ae_atlas_observations) > 0) {
+  levels <- unique(ae_atlas_observations$evidence)
+  c("All evidence levels" = "__all__", stats::setNames(levels, levels))
+} else {
+  c("All evidence levels" = "__all__")
+}
+
+disclosure_list <- function(data, show_evidence = TRUE) {
+  if (nrow(data) == 0) return(p("No observations match these filters."))
+
+  tagList(lapply(seq_len(nrow(data)), function(i) {
+    row <- data[i, , drop = FALSE]
+    value_or <- function(name, fallback = "Not applicable") {
+      if (!name %in% names(row) || is.na(row[[name]][1]) || row[[name]][1] == "") fallback else as.character(row[[name]][1])
+    }
+    evidence <- value_or("evidence", "Overall synthesis")
+    tags$details(
+      class = "analysis-disclosure",
+      tags$summary(
+        tags$div(
+          class = "disclosure-summary",
+          tags$div(class = "disclosure-title", value_or("title")),
+          if (show_evidence) tags$span(class = "evidence-label", evidence),
+          tags$div(class = "disclosure-description", value_or("description"))
+        )
+      ),
+      tags$div(
+        class = "disclosure-body",
+        tags$h5("Calculation and result"),
+        tags$p(value_or("calculation")),
+        tags$h5("Method"),
+        tags$p(value_or("method")),
+        tags$h5("Controlled for"),
+        tags$p(value_or("controls", "No covariates; descriptive or unadjusted result.")),
+        tags$h5("Related data"),
+        tags$p(value_or("related_data")),
+        tags$h5("Interpretation limits"),
+        tags$p(value_or("caveat", "Standard observational-data limitations apply."))
+      )
+    )
+  }))
+}
+
 ui <- dashboardPage(
   skin = "black",
   dashboardHeader(title = "Marina Analysis Suite"),
@@ -88,6 +142,8 @@ ui <- dashboardPage(
       menuItem("Baseline AE Tests", tabName = "baseline", icon = icon("table")),
       menuItem("Pre-Post Change", tabName = "prepost", icon = icon("arrows-rotate")),
       menuItem("Key Differences", tabName = "keydiff", icon = icon("magnifying-glass-chart")),
+      menuItem("AE Relationship Atlas", tabName = "aeatlas", icon = icon("diagram-project")),
+      menuItem("Overall Signal", tabName = "overall", icon = icon("signal")),
       menuItem("Observations", tabName = "observations", icon = icon("lightbulb")),
       menuItem("AE Types", tabName = "types", icon = icon("shapes")),
       menuItem("Sensitivity", tabName = "sensitivity", icon = icon("sliders"))
@@ -131,6 +187,28 @@ ui <- dashboardPage(
         font-weight: 700;
         margin-bottom: 7px;
       }
+      .analysis-disclosure {
+        border-top: 1px solid #d7dee7;
+        background: #ffffff;
+      }
+      .analysis-disclosure:last-child { border-bottom: 1px solid #d7dee7; }
+      .analysis-disclosure summary {
+        cursor: pointer;
+        list-style-position: inside;
+        padding: 13px 14px;
+      }
+      .analysis-disclosure summary:hover { background: #f7f9fb; }
+      .disclosure-summary { display: inline-block; width: calc(100% - 24px); vertical-align: top; }
+      .disclosure-title { font-size: 15px; font-weight: 700; color: #1f2937; margin-bottom: 5px; }
+      .disclosure-description { color: #475467; line-height: 1.45; }
+      .disclosure-body {
+        padding: 4px 18px 16px 38px;
+        border-left: 3px solid #2a7f9e;
+        margin: 0 14px 14px;
+      }
+      .disclosure-body h5 { font-weight: 700; margin: 10px 0 3px; }
+      .disclosure-body p { margin: 0 0 6px; }
+      .atlas-filter-note { color: #667085; font-size: 12px; margin-top: 8px; }
     "))),
     tabItems(
       tabItem(
@@ -199,6 +277,56 @@ ui <- dashboardPage(
           box(width = 5, title = "Top Overall Interpretations", status = "primary", solidHeader = TRUE, uiOutput("top_difference_interpretations")),
           box(width = 12, title = "Fields Analyzed and Controls Used", status = "primary", solidHeader = TRUE, DTOutput("fields_controls_table")),
           box(width = 12, title = "Ranked Difference Table", status = "primary", solidHeader = TRUE, DTOutput("key_difference_table"))
+        )
+      ),
+      tabItem(
+        tabName = "aeatlas",
+        if (nrow(ae_atlas_observations) == 0) empty_panel() else fluidRow(
+          box(
+            width = 12,
+            title = "What This Atlas Answers",
+            status = "primary",
+            solidHeader = TRUE,
+            p("This tab collects every defensible analysis of how AE status, AE valence, AE subtype, and verification route relate to baseline responses, adjusted POST outcomes, observed PRE-to-POST change, improvement probability, age, missingness, and the joint nine-item response profile."),
+            p("Click any observation to open the calculation, model formula, controls, related data, and interpretation limits. Family FDR is BH correction within a coherent analysis family; atlas FDR is BH correction across every estimable inferential row on this tab."),
+            p("AE cannot be treated as a randomized exposure here. The atlas describes relationships and possible moderation; it does not prove that AE experiences caused any outcome.")
+          ),
+          box(width = 12, title = "Global AE Checks", status = "primary", solidHeader = TRUE, uiOutput("ae_atlas_global_cards")),
+          box(
+            width = 3,
+            title = "Filter Observations",
+            status = "primary",
+            selectInput("atlas_section", "Section", choices = atlas_section_choices),
+            selectInput("atlas_evidence", "Evidence", choices = atlas_evidence_choices),
+            textInput("atlas_search", "Search", placeholder = "e.g. anxiety, valence"),
+            tags$div(class = "atlas-filter-note", textOutput("atlas_result_count"))
+          ),
+          box(width = 9, title = "AE Outcome Profile", status = "primary", solidHeader = TRUE, plotlyOutput("ae_atlas_profile_plot")),
+          box(width = 12, title = "Every AE-Related Observation", status = "primary", solidHeader = TRUE, uiOutput("ae_atlas_accordion")),
+          box(width = 12, title = "Complete Calculation Inventory", status = "primary", solidHeader = TRUE, DTOutput("ae_atlas_inventory_table"))
+        )
+      ),
+      tabItem(
+        tabName = "overall",
+        if (nrow(overall_signals) == 0) empty_panel() else fluidRow(
+          box(
+            width = 12,
+            title = "Is There Anything Interesting Here?",
+            status = "primary",
+            solidHeader = TRUE,
+            p("Yes, but the strongest signal is not a clean AE-specific intervention effect. The sample improves on several outcomes overall, age is consistently related to the size of improvement, and AE valence has an intriguing baseline relationship with anxiety and confidence. AE yes versus no differences in change remain exploratory and uncertain."),
+            p("The entries below are ordered by what I would present first. Click each statement for the supporting calculation, method, related evidence, and limitations.")
+          ),
+          box(
+            width = 7,
+            title = "Overall PRE-to-POST Signal",
+            status = "primary",
+            solidHeader = TRUE,
+            tags$div(class = "atlas-filter-note", "Green = item-family FDR < .05; gray = not FDR-supported."),
+            plotlyOutput("overall_change_plot")
+          ),
+          box(width = 5, title = "Evidence Summary", status = "primary", solidHeader = TRUE, plotlyOutput("overall_evidence_plot")),
+          box(width = 12, title = "What the Data Support", status = "primary", solidHeader = TRUE, uiOutput("overall_signal_cards"))
         )
       ),
       tabItem(
@@ -548,6 +676,173 @@ server <- function(input, output) {
         adjusted_estimate, adjusted_p_text, interpretation
       ) |>
       datatable(filter = "top", options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE)
+  })
+
+  atlas_filtered <- reactive({
+    data <- ae_atlas_observations
+    if (!is.null(input$atlas_section) && input$atlas_section != "__all__") {
+      data <- data |> filter(section == input$atlas_section)
+    }
+    if (!is.null(input$atlas_evidence) && input$atlas_evidence != "__all__") {
+      data <- data |> filter(evidence == input$atlas_evidence)
+    }
+    search <- stringr::str_squish(input$atlas_search %||% "")
+    if (search != "") {
+      search_lower <- stringr::str_to_lower(search)
+      data <- data |>
+        filter(stringr::str_detect(
+          stringr::str_to_lower(paste(section, family, title, description, related_data)),
+          stringr::fixed(search_lower)
+        ))
+    }
+    data
+  })
+
+  output$ae_atlas_global_cards <- renderUI({
+    global_rows <- ae_atlas_observations |>
+      filter(family %in% c("Global multivariate AE profile", "Baseline profile prediction", "Outcome completeness")) |>
+      arrange(p_value)
+    disclosure_list(global_rows)
+  })
+
+  output$atlas_result_count <- renderText({
+    paste0(nrow(atlas_filtered()), " of ", nrow(ae_atlas_observations), " observations shown")
+  })
+
+  output$ae_atlas_accordion <- renderUI({
+    disclosure_list(atlas_filtered() |> arrange(section, p_value))
+  })
+
+  output$ae_atlas_profile_plot <- renderPlotly({
+    profile <- ae_atlas_inventory |>
+      filter(
+        family %in% c("AE status at baseline", "AE status and observed change"),
+        !is.na(item), !is.na(effect_size)
+      ) |>
+      mutate(
+        profile = recode(
+          family,
+          "AE status at baseline" = "Baseline AE yes vs no",
+          "AE status and observed change" = "AE difference in PRE-to-POST change"
+        ),
+        item_label = paste0("Item ", item, ": ", stringr::str_trunc(stringr::str_remove(outcome, "^(PRE|Change) Item [0-9]+: "), 36))
+      )
+
+    p <- profile |>
+      ggplot(aes(
+        x = reorder(item_label, item), y = effect_size, color = profile,
+        text = paste0(
+          outcome,
+          "<br>", profile,
+          "<br>Rank-biserial r: ", round(effect_size, 3),
+          "<br>Raw p: ", p_text,
+          "<br>Family FDR: ", family_fdr_text,
+          "<br>Atlas FDR: ", atlas_fdr_text
+        )
+      )) +
+      geom_hline(yintercept = 0, color = "#777777") +
+      geom_point(size = 3) +
+      geom_segment(aes(xend = item_label, y = 0, yend = effect_size), linewidth = 0.7) +
+      coord_flip() +
+      facet_wrap(~ profile, ncol = 1) +
+      scale_color_manual(values = c("Baseline AE yes vs no" = "#2a7f9e", "AE difference in PRE-to-POST change" = "#c86b3c")) +
+      labs(x = NULL, y = "Rank-biserial effect", color = NULL) +
+      theme_minimal(base_size = 12) +
+      theme(legend.position = "none")
+
+    ggplotly(p, tooltip = "text") |>
+      plotly::layout(margin = list(l = 220, r = 15, b = 70, t = 25))
+  })
+
+  output$ae_atlas_inventory_table <- renderDT({
+    ae_atlas_inventory |>
+      select(
+        evidence, family, outcome, effect_metric, estimate, conf_low, conf_high,
+        effect_size, n, p_text, family_fdr_text, atlas_fdr_text,
+        method, controls, caveat
+      ) |>
+      datatable(filter = "top", options = list(pageLength = 20, scrollX = TRUE), rownames = FALSE)
+  })
+
+  output$overall_change_plot <- renderPlotly({
+    plot_data <- prepost_tests |>
+      mutate(
+        label_short = paste0("Item ", item, ": ", stringr::str_trunc(label, 38)),
+        evidence = if_else(p_fdr < 0.05, "Item-family FDR < .05", "Not FDR-supported")
+      )
+    p <- plot_data |>
+      ggplot(aes(
+        x = reorder(label_short, rank_biserial_r), y = rank_biserial_r,
+        color = evidence,
+        text = paste0(
+          label,
+          "<br>Paired rank-biserial r: ", round(rank_biserial_r, 3),
+          "<br>Raw p: ", round(p_value, 4),
+          "<br>FDR p: ", round(p_fdr, 4)
+        )
+      )) +
+      geom_hline(yintercept = 0, color = "#777777") +
+      geom_segment(aes(xend = label_short, y = 0, yend = rank_biserial_r), linewidth = 0.8) +
+      geom_point(size = 3) +
+      coord_flip() +
+      scale_color_manual(values = c("Item-family FDR < .05" = "#167d5a", "Not FDR-supported" = "#78828c")) +
+      labs(x = NULL, y = "Paired rank-biserial effect", color = NULL) +
+      theme_minimal(base_size = 12) +
+      theme(legend.position = "none")
+    ggplotly(p, tooltip = "text") |>
+      plotly::layout(
+        showlegend = FALSE,
+        margin = list(l = 220, r = 15, b = 75, t = 25),
+        xaxis = list(
+          tickmode = "array",
+          tickvals = c(0, 0.1, 0.2, 0.3, 0.4),
+          ticktext = c("0.0", "0.1", "0.2", "0.3", "0.4"),
+          range = c(-0.01, 0.46)
+        )
+      )
+  })
+
+  output$overall_evidence_plot <- renderPlotly({
+    plot_data <- ae_atlas_inventory |>
+      count(evidence) |>
+      tidyr::complete(
+        evidence = c(
+          "Atlas-wide FDR < .05", "Family FDR < .05", "Nominal p < .05 only",
+          "No statistical signal", "Descriptive / insufficient data"
+        ),
+        fill = list(n = 0)
+      ) |>
+      mutate(
+        evidence = factor(evidence, levels = c(
+          "Atlas-wide FDR < .05", "Family FDR < .05", "Nominal p < .05 only",
+          "No statistical signal", "Descriptive / insufficient data"
+        )),
+        evidence_short = recode(
+          as.character(evidence),
+          "Atlas-wide FDR < .05" = "Atlas-wide FDR",
+          "Family FDR < .05" = "Family FDR",
+          "Nominal p < .05 only" = "Nominal only",
+          "No statistical signal" = "No signal",
+          "Descriptive / insufficient data" = "Descriptive only"
+        )
+      )
+    p <- plot_data |>
+      ggplot(aes(x = evidence_short, y = n, fill = evidence, text = paste0(evidence, ": ", n, " rows"))) +
+      geom_col(show.legend = FALSE) +
+      coord_flip() +
+      scale_fill_manual(values = c(
+        "Atlas-wide FDR < .05" = "#167d5a", "Family FDR < .05" = "#2a7f9e",
+        "Nominal p < .05 only" = "#c46b20", "No statistical signal" = "#78828c",
+        "Descriptive / insufficient data" = "#b8bec5"
+      ), drop = FALSE) +
+      labs(x = NULL, y = "Number of AE-atlas rows") +
+      theme_minimal(base_size = 12)
+    ggplotly(p, tooltip = "text") |>
+      plotly::layout(showlegend = FALSE, margin = list(l = 130, r = 15, b = 55, t = 25))
+  })
+
+  output$overall_signal_cards <- renderUI({
+    disclosure_list(overall_signals |> arrange(priority), show_evidence = FALSE)
   })
 
   output$observation_highlights <- renderUI({

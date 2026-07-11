@@ -54,6 +54,7 @@ source("scripts/05_exploratory_age_type_verification.R")
 source("scripts/06_sensitivity_ae_unknown.R")
 source("scripts/07_key_differences.R")
 source("scripts/08_observations.R")
+source("scripts/09_ae_relationship_atlas.R")
 ```
 
 Or run everything:
@@ -78,7 +79,7 @@ After running `01_import_clean.R` at minimum:
 shiny::runApp("app")
 ```
 
-The app displays cleaning flags, sample characteristics, item distributions, primary baseline comparisons, direction-explicit AE change contrasts, a multiple-testing-aware exploratory observations scan, AE type/verification summaries, and sensitivity-analysis outputs when available.
+The app displays cleaning flags, sample characteristics, item distributions, primary baseline comparisons, direction-explicit AE change contrasts, a 145-observation AE Relationship Atlas with expandable calculation details, an Overall Signal synthesis, AE type/verification summaries, and sensitivity-analysis outputs when available.
 
 ## Build the Static GitHub Pages Snapshot
 
