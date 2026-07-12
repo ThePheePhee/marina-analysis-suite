@@ -831,6 +831,55 @@ server <- function(input, output, session) {
       "At least one baseline difference is retained under both recoding assumptions. This is a cross-sectional association and does not by itself show that entity encounters caused the difference."
     }
 
+    classification_sensitive_detail <- if (nrow(baseline_supported) > 0 && length(robust_baseline) == 0) {
+      focal_item <- baseline_supported$item[[1]]
+      focal_label <- baseline_supported$label[[1]]
+      scale_description <- if (baseline_supported$direction[[1]] == "higher_better") {
+        "Higher scores indicate a more favourable starting position for this item."
+      } else {
+        "Higher scores indicate more difficulty or distress for this item."
+      }
+      primary_row <- baseline_tests |> filter(item == focal_item) |> slice(1)
+      unknown_no_row <- sensitivity_baseline |> filter(item == focal_item, scenario == "unknown_as_no") |> slice(1)
+      unknown_yes_row <- sensitivity_baseline |> filter(item == focal_item, scenario == "unknown_as_yes") |> slice(1)
+
+      comparison_sentence <- function(row, assumption, corrected = FALSE) {
+        if (nrow(row) == 0) return(NULL)
+        paste0(
+          assumption, ": AE-yes n = ", row$n_yes,
+          " (median ", row$median_iqr_yes, "); AE-no n = ", row$n_no,
+          " (median ", row$median_iqr_no, "). Raw p = ",
+          formatC(row$p_value, format = "f", digits = 3),
+          "; BH FDR q = ", formatC(row$p_fdr, format = "f", digits = 3),
+          if (corrected) "; this meets the corrected q < .05 threshold." else "; this does not meet the corrected q < .05 threshold."
+        )
+      }
+
+      div(
+        class = "interpretation-card",
+        h4("What the classification-sensitive baseline signal is"),
+        p(
+          paste0(
+            "The signal concerns PRE Item ", focal_item, ": ", focal_label,
+            ". ", scale_description, " In every version of the comparison, the AE-yes group has the lower median score; what changes is whether that contrast is statistically supported after accounting for the nine item tests."
+          )
+        ),
+        tags$ul(
+          tags$li(comparison_sentence(primary_row, "Primary analysis - exclude AE-unknown records")),
+          tags$li(comparison_sentence(unknown_no_row, "Sensitivity analysis - treat all AE-unknown records as AE-no")),
+          tags$li(comparison_sentence(unknown_yes_row, "Sensitivity analysis - treat all AE-unknown records as AE-yes", corrected = TRUE))
+        ),
+        p(
+          "Thus, the primary analysis does not produce a corrected significant result. The result becomes corrected-significant only when the unknown records are included with AE-yes; it becomes weaker when those same records are included with AE-no. This pattern indicates that the inference depends on unresolved AE classification."
+        ),
+        p(
+          "This is a PRE/baseline association, not a difference in intervention response. The PRE-to-POST change table has no FDR-supported AE-group difference under either recoding scenario."
+        )
+      )
+    } else {
+      NULL
+    }
+
     tagList(
       div(
         class = "interpretation-card",
@@ -840,6 +889,7 @@ server <- function(input, output, session) {
         p(baseline_interpretation),
         tags$div(class = "interpretation-meta", paste0(n_unknown, " participants are currently coded AE-unknown."))
       ),
+      classification_sensitive_detail,
       if (nrow(baseline_supported) > 0 || nrow(change_supported) > 0) div(
         class = "interpretation-card",
         h4("Corrected results that need attention"),
