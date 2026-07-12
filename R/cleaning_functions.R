@@ -6,22 +6,62 @@ clean_numeric_score <- function(x) {
   readr::parse_number(x_chr, na = c("", "NA", "N/A"))
 }
 
+normalise_age_raw <- function(age_raw) {
+  stringr::str_squish(stringr::str_to_lower(as.character(age_raw)))
+}
+
+is_grade_age_entry <- function(age_raw) {
+  raw <- normalise_age_raw(age_raw)
+  !is.na(raw) & stringr::str_detect(raw, "1st|first|2nd|second|4th|fourth") &
+    stringr::str_detect(raw, "grade")
+}
+
+is_floored_decimal_age_entry <- function(age_raw) {
+  raw <- normalise_age_raw(age_raw)
+  !is.na(raw) & raw == "8.5"
+}
+
+age_tentatively_resolved <- function(age_raw) {
+  is_grade_age_entry(age_raw) | is_floored_decimal_age_entry(age_raw)
+}
+
+age_resolution_status <- function(age_raw) {
+  dplyr::case_when(
+    age_tentatively_resolved(age_raw) ~ "Tentatively resolved",
+    flag_uncertain_age(age_raw) ~ "Needs source confirmation",
+    TRUE ~ "Not applicable"
+  )
+}
+
+age_resolution_note <- function(age_raw) {
+  raw <- normalise_age_raw(age_raw)
+  dplyr::case_when(
+    is_floored_decimal_age_entry(raw) ~ "Applied the documented provisional rule: floor age 8.5 to age 8.",
+    stringr::str_detect(raw, "1st|first") & stringr::str_detect(raw, "grade") ~ "Applied the expected midpoint age for 1st grade: 6.5 years.",
+    stringr::str_detect(raw, "2nd|second") & stringr::str_detect(raw, "grade") ~ "Applied the expected midpoint age for 2nd grade: 7.5 years.",
+    stringr::str_detect(raw, "4th|fourth") & stringr::str_detect(raw, "grade") ~ "Applied the expected midpoint age for 4th grade: 9.5 years.",
+    TRUE ~ "No tentative age-resolution rule was applied."
+  )
+}
+
 clean_age_value <- function(age_raw) {
-  raw <- stringr::str_squish(stringr::str_to_lower(as.character(age_raw)))
+  raw <- normalise_age_raw(age_raw)
 
   dplyr::case_when(
     is.na(raw) | raw == "" ~ NA_real_,
-    stringr::str_detect(raw, "1st|first") ~ 6.5,
-    stringr::str_detect(raw, "2nd|second") ~ 7.5,
-    stringr::str_detect(raw, "4th|fourth") ~ 9.5,
+    stringr::str_detect(raw, "1st|first") & stringr::str_detect(raw, "grade") ~ 6.5,
+    stringr::str_detect(raw, "2nd|second") & stringr::str_detect(raw, "grade") ~ 7.5,
+    stringr::str_detect(raw, "4th|fourth") & stringr::str_detect(raw, "grade") ~ 9.5,
+    is_floored_decimal_age_entry(raw) ~ floor(readr::parse_number(raw)),
     TRUE ~ readr::parse_number(raw)
   )
 }
 
 flag_uncertain_age <- function(age_raw) {
-  raw <- stringr::str_squish(stringr::str_to_lower(as.character(age_raw)))
+  raw <- normalise_age_raw(age_raw)
   !is.na(raw) & raw != "" & (
     stringr::str_detect(raw, "grade|\\?|cort|quarter|quarters") |
+      is_floored_decimal_age_entry(raw) |
       is.na(readr::parse_number(raw))
   )
 }

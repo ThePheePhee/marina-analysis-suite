@@ -53,6 +53,9 @@ participant_clean_base <- data_rows |>
     participant_id = as.integer(clean_numeric_score(participant_id)),
     age = clean_age_value(age_raw),
     age_uncertain_flag = flag_uncertain_age(age_raw),
+    age_tentatively_resolved_flag = age_tentatively_resolved(age_raw),
+    age_resolution_status = age_resolution_status(age_raw),
+    age_resolution_note = age_resolution_note(age_raw),
     age_group = factor(make_age_group(age), levels = age_group_levels),
     ae_status = factor(clean_ae_status(ae_raw), levels = ae_levels),
     ae_status_primary = dplyr::if_else(ae_status == "unknown", NA_character_, as.character(ae_status)),
@@ -63,7 +66,8 @@ participant_clean_base <- data_rows |>
 participant_clean <- participant_clean_base |>
   dplyr::bind_cols(code_ae_types(participant_clean_base$ae_type_raw)) |>
   dplyr::select(
-    participant_id, participant_name, age_raw, age, age_uncertain_flag, age_group,
+    participant_id, participant_name, age_raw, age, age_uncertain_flag,
+    age_tentatively_resolved_flag, age_resolution_status, age_resolution_note, age_group,
     ae_raw, ae_status, ae_status_primary, ae_type_raw, dplyr::all_of(ae_type_columns),
     verified_by_raw, verification_method, valence_raw
   )
@@ -157,6 +161,9 @@ cleaning_flags <- participant_analysis |>
     age_raw,
     age,
     age_uncertain_flag,
+    age_tentatively_resolved_flag,
+    age_resolution_status,
+    age_resolution_note,
     age_outside_plan_range = age_group == "outside_plan_range",
     ae_raw,
     ae_status,
@@ -167,21 +174,27 @@ cleaning_flags <- participant_analysis |>
   ) |>
   dplyr::rowwise() |>
   dplyr::mutate(
-    review_priority = "Decision required",
+    review_priority = dplyr::case_when(
+      isTRUE(age_tentatively_resolved_flag) &
+        (isTRUE(ae_unknown_flag) || isTRUE(verification_method == "other_unclear") || isTRUE(age_outside_plan_range)) ~
+        "Tentatively resolved; other review remains",
+      isTRUE(age_tentatively_resolved_flag) ~ "Tentatively resolved",
+      TRUE ~ "Decision required"
+    ),
     why_review_needed = paste(c(
-      if (isTRUE(age_uncertain_flag)) "Age was supplied as a grade, an approximate value, or an otherwise ambiguous entry." else NULL,
+      if (isTRUE(age_uncertain_flag)) "Age was supplied as a grade, the decimal value 8.5, an approximate value, or another ambiguous entry; the source issue remains open even where a tentative analytic value is used." else NULL,
       if (isTRUE(age_outside_plan_range)) "Parsed age falls outside the analysis-plan range of 5 to 15 years." else NULL,
       if (isTRUE(ae_unknown_flag)) "AE status was blank, '?', or another value that could not be classified as yes or no." else NULL,
       if (isTRUE(verification_method == "other_unclear")) "Verification text did not match a prespecified verification category." else NULL
     ), collapse = " "),
     action_required = paste(c(
-      if (isTRUE(age_uncertain_flag)) "Confirm the intended numeric age; amend the source value or document the recoding decision." else NULL,
+      if (isTRUE(age_tentatively_resolved_flag)) "Confirm the source age; retain or revise the documented tentative recoding after confirmation." else if (isTRUE(age_uncertain_flag)) "Confirm the intended numeric age; amend the source value or document the recoding decision." else NULL,
       if (isTRUE(age_outside_plan_range)) "Confirm eligibility for the planned 5-15-year analytic range." else NULL,
       if (isTRUE(ae_unknown_flag)) "Resolve the intended AE status as yes, no, or genuinely unknown where source information permits." else NULL,
       if (isTRUE(verification_method == "other_unclear")) "Classify the verification route, or confirm that it should remain uncategorised." else NULL
     ), collapse = " "),
     current_automated_handling = paste(c(
-      if (isTRUE(age_uncertain_flag)) "Retained the parsed or grade-midpoint age and flagged it." else NULL,
+      if (isTRUE(age_tentatively_resolved_flag)) age_resolution_note else if (isTRUE(age_uncertain_flag)) "Retained the parsed age and flagged it without applying a tentative resolution." else NULL,
       if (isTRUE(age_outside_plan_range)) "Retained the participant and labelled the age group outside_plan_range." else NULL,
       if (isTRUE(ae_unknown_flag)) "Kept AE status as unknown; excluded it from the primary AE yes/no comparison and retained it for sensitivity analyses." else NULL,
       if (isTRUE(verification_method == "other_unclear")) "Kept the raw text and assigned verification_method = other_unclear." else NULL

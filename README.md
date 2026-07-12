@@ -130,7 +130,7 @@ Current run checks:
 
 Some cleaning decisions require project-team confirmation rather than automated resolution. See `docs/cleaning_log.md`, especially:
 
-- Grade-level age recoding and uncertain age entries.
+- Tentatively resolved age entries remain open for source confirmation: `8.5` is floored to `8`, while grade entries use expected midpoint ages (`1st grade = 6.5`, `2nd grade = 7.5`, `4th grade = 9.5`). These provisional values feed all age-based calculations.
 - Whether skipped row numbers represent withdrawn participants or data-entry gaps.
 - Final coding of `?` anomalous-experience records.
 - AE type and verification method categorization for ambiguous free text.

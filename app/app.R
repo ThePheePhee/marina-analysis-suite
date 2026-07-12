@@ -425,7 +425,7 @@ ui <- dashboardPage(
             solidHeader = TRUE,
             tags$div(
               class = "cleaning-note",
-              "Each row below states why it was flagged, the exact source decision needed, and what the pipeline currently does until that decision is recorded. The original workbook is never overwritten."
+              "Each row below remains on the cleaning register until the source is confirmed. “Tentatively resolved” means calculations currently use a documented provisional value: age 8.5 is floored to 8, while grade entries use the expected midpoint age for that grade (1st = 6.5, 2nd = 7.5, 4th = 9.5). The original workbook is never overwritten."
             ),
             uiOutput("cleaning_action_summary")
           ),
@@ -1015,6 +1015,7 @@ server <- function(input, output, session) {
         age_min = min(age, na.rm = TRUE),
         age_max = max(age, na.rm = TRUE),
         age_uncertain_n = sum(age_uncertain_flag, na.rm = TRUE),
+        age_tentatively_resolved_n = sum(age_tentatively_resolved_flag, na.rm = TRUE),
         .groups = "drop"
       ) |>
       datatable(options = list(pageLength = 10), rownames = FALSE)
@@ -1024,13 +1025,25 @@ server <- function(input, output, session) {
     review_rows <- cleaning_flags |>
       filter(age_uncertain_flag | age_outside_plan_range | ae_unknown_flag | verification_method == "other_unclear") |>
       select(
-        review_priority, participant_id, why_review_needed, action_required,
-        current_automated_handling, affected_analysis, age_raw, age, ae_raw,
+        review_priority, participant_id, age_resolution_status, age_resolution_note,
+        why_review_needed, action_required, current_automated_handling, affected_analysis, age_raw, age, ae_raw,
         ae_status, ae_type_raw, verified_by_raw, verification_method
       )
 
     datatable(review_rows, filter = "top", options = list(pageLength = 25, scrollX = TRUE), rownames = FALSE) |>
-      formatStyle("review_priority", backgroundColor = "#fff3e0", color = "#8a4b00", fontWeight = "700") |>
+      formatStyle(
+        "review_priority",
+        backgroundColor = styleEqual(
+          c("Tentatively resolved", "Tentatively resolved; other review remains", "Decision required"),
+          c("#e8f5e9", "#fff8e1", "#fff3e0")
+        ),
+        color = styleEqual(
+          c("Tentatively resolved", "Tentatively resolved; other review remains", "Decision required"),
+          c("#246b35", "#7a5a00", "#8a4b00")
+        ),
+        fontWeight = "700"
+      ) |>
+      formatStyle("age_resolution_status", backgroundColor = styleEqual("Tentatively resolved", "#e8f5e9"), color = "#246b35", fontWeight = "700") |>
       formatStyle("action_required", backgroundColor = "#fffaf0", fontWeight = "600")
   })
 
@@ -1039,9 +1052,10 @@ server <- function(input, output, session) {
       filter(age_uncertain_flag | age_outside_plan_range | ae_unknown_flag | verification_method == "other_unclear")
 
     tagList(
-      tags$span(class = "cleaning-summary", paste(nrow(flagged_rows), "participant rows require a decision")),
+      tags$span(class = "cleaning-summary", paste(nrow(flagged_rows), "participant rows remain on the cleaning register")),
       tags$span(class = "cleaning-summary", paste(sum(flagged_rows$ae_unknown_flag, na.rm = TRUE), "ambiguous AE-status entries")),
-      tags$span(class = "cleaning-summary", paste(sum(flagged_rows$age_uncertain_flag, na.rm = TRUE), "uncertain age entries")),
+      tags$span(class = "cleaning-summary", paste(sum(flagged_rows$age_tentatively_resolved_flag, na.rm = TRUE), "age entries tentatively resolved for calculation")),
+      tags$span(class = "cleaning-summary", paste(sum(flagged_rows$age_uncertain_flag, na.rm = TRUE), "age issues still awaiting source confirmation")),
       tags$span(class = "cleaning-summary", paste(sum(flagged_rows$age_outside_plan_range, na.rm = TRUE), "age outside planned range")),
       tags$span(class = "cleaning-summary", paste(nrow(missing_id_flags), "participant-number gaps"))
     )

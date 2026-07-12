@@ -113,16 +113,18 @@ yes_n <- ae_prev$n[match("yes", ae_prev$ae_status)]
 no_n <- ae_prev$n[match("no", ae_prev$ae_status)]
 unknown_n <- ae_prev$n[match("unknown", ae_prev$ae_status)]
 age_flags <- sum(table1$age_uncertain_n, na.rm = TRUE)
+age_tentative <- sum(table1$age_tentatively_resolved_n, na.rm = TRUE)
 
 kpis <- tibble::tibble(
-  label = c("Participants", "AE yes", "AE no", "AE unknown", "Age review flags", "Missing row numbers"),
-  value = c(total_n, yes_n, no_n, unknown_n, age_flags, nrow(missing_ids)),
+  label = c("Participants", "AE yes", "AE no", "AE unknown", "Age review flags", "Tentative age resolutions", "Missing row numbers"),
+  value = c(total_n, yes_n, no_n, unknown_n, age_flags, age_tentative, nrow(missing_ids)),
   note = c(
     "Cleaned rows included in analysis",
     fmt_pct(yes_n / total_n),
     fmt_pct(no_n / total_n),
     fmt_pct(unknown_n / total_n),
     "Approximate or uncertain ages",
+    "8.5 floored to 8; grades use midpoint expected age",
     "Count only; exact IDs withheld"
   )
 )
@@ -139,7 +141,8 @@ sample_table <- table1 |>
     "Age SD" = age_sd,
     "Age min" = age_min,
     "Age max" = age_max,
-    "Age flags" = age_uncertain_n
+    "Age flags" = age_uncertain_n,
+    "Tentatively resolved ages" = age_tentatively_resolved_n
   )
 
 ae_prev_table <- ae_prev |>
@@ -626,7 +629,7 @@ html <- paste0(
   <section id='quality' class='section'>
     <h2>Age Correlations</h2><div class='card' id='table-age'></div>
     <h2>Missingness by Item</h2><div class='card' id='table-missingness'></div>
-    <p class='note'>Row-number gaps and uncertain-age cases are summarized only. Exact row IDs and row-level cleaning records are withheld from the public snapshot.</p>
+    <p class='note'>Tentative age rules used throughout every calculation: the 8.5 entry is floored to age 8; grade entries use expected midpoint ages (1st = 6.5, 2nd = 7.5, 4th = 9.5). These cases remain flagged for source confirmation. Row IDs and row-level cleaning records are withheld from the public snapshot.</p>
   </section>
 
   <section id='sensitivity' class='section'>

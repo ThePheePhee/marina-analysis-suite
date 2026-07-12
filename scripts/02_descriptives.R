@@ -21,6 +21,7 @@ sample_characteristics <- participants |>
     age_min = min(age, na.rm = TRUE),
     age_max = max(age, na.rm = TRUE),
     age_uncertain_n = sum(age_uncertain_flag, na.rm = TRUE),
+    age_tentatively_resolved_n = sum(age_tentatively_resolved_flag, na.rm = TRUE),
     .groups = "drop"
   )
 

@@ -26,6 +26,7 @@ sample_characteristics <- dplyr::bind_rows(
       age_mean = mean(age, na.rm = TRUE), age_sd = stats::sd(age, na.rm = TRUE),
       age_median = stats::median(age, na.rm = TRUE), age_min = min(age, na.rm = TRUE), age_max = max(age, na.rm = TRUE),
       age_missing = sum(is.na(age)), age_uncertain = sum(age_uncertain_flag, na.rm = TRUE),
+      age_tentatively_resolved = sum(age_tentatively_resolved_flag, na.rm = TRUE),
       sex = "Not available in supplied workbook", .groups = "drop"
     ),
   participants |>
@@ -34,6 +35,7 @@ sample_characteristics <- dplyr::bind_rows(
       age_mean = mean(age, na.rm = TRUE), age_sd = stats::sd(age, na.rm = TRUE),
       age_median = stats::median(age, na.rm = TRUE), age_min = min(age, na.rm = TRUE), age_max = max(age, na.rm = TRUE),
       age_missing = sum(is.na(age)), age_uncertain = sum(age_uncertain_flag, na.rm = TRUE),
+      age_tentatively_resolved = sum(age_tentatively_resolved_flag, na.rm = TRUE),
       sex = "Not available in supplied workbook"
     )
 ) |>
