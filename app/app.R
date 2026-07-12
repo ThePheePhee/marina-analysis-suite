@@ -770,25 +770,89 @@ server <- function(input, output, session) {
     baseline_supported <- sensitivity_baseline |> filter(!is.na(p_fdr), p_fdr < 0.05)
     change_supported <- sensitivity_change |> filter(!is.na(p_fdr), p_fdr < 0.05)
 
-    summary_text <- if (nrow(baseline_supported) == 0 && nrow(change_supported) == 0) {
-      "Across both extreme recodings, no baseline item and no PRE-to-POST change item reaches BH FDR < .05. In the current data, the broad conclusion of no corrected AE-group signal is therefore not driven solely by excluding the uncertain-AE group."
-    } else {
-      paste0(
-        "At least one result reaches BH FDR < .05 under an extreme unknown-AE recoding. Inspect the scenario, item, and effect size carefully: a finding that appears under only one recoding is sensitive to an unresolved classification decision."
+    scenario_name <- function(x) {
+      dplyr::recode(
+        x,
+        unknown_as_no = "treating every unknown as AE-no",
+        unknown_as_yes = "treating every unknown as AE-yes",
+        .default = x
       )
+    }
+
+    supported_items <- function(data, analysis_name) {
+      if (nrow(data) == 0) return(NULL)
+
+      lapply(seq_len(nrow(data)), function(i) {
+        row <- data[i, , drop = FALSE]
+        direction_text <- if (is.na(row$rank_biserial_r)) {
+          "the groups differed"
+        } else if (row$rank_biserial_r < 0) {
+          "the AE-yes group had lower scores"
+        } else {
+          "the AE-yes group had higher scores"
+        }
+
+        tags$li(
+          paste0(
+            analysis_name, ": under the scenario ", scenario_name(row$scenario),
+            ", ", row$label, " met the corrected threshold (BH FDR q = ",
+            formatC(row$p_fdr, format = "f", digits = 3), "; raw p = ",
+            formatC(row$p_value, format = "f", digits = 3), "). In that comparison, ",
+            direction_text, " (rank-biserial r = ",
+            formatC(row$rank_biserial_r, format = "f", digits = 2), ")."
+          )
+        )
+      })
+    }
+
+    baseline_by_scenario <- split(baseline_supported$item, baseline_supported$scenario)
+    change_by_scenario <- split(change_supported$item, change_supported$scenario)
+    robust_baseline <- if (length(baseline_by_scenario) == 2) Reduce(intersect, baseline_by_scenario) else integer(0)
+    robust_change <- if (length(change_by_scenario) == 2) Reduce(intersect, change_by_scenario) else integer(0)
+    no_robust_signal <- length(robust_baseline) == 0 && length(robust_change) == 0
+
+    headline <- if (no_robust_signal) {
+      "The sensitivity analysis does not show a robust AE-group finding across both extreme recodings."
+    } else {
+      "At least one corrected AE-group finding is retained under both extreme recodings."
+    }
+
+    change_interpretation <- if (nrow(change_supported) == 0) {
+      "For the main intervention question, neither extreme recoding produces an FDR-supported difference in PRE-to-POST change. The current data therefore do not provide statistically corrected evidence that the AE-yes and AE-no groups changed differently on any of the nine outcomes."
+    } else {
+      "At least one PRE-to-POST change comparison meets the corrected threshold under an extreme recoding. Its stability across scenarios and effect size should be inspected before drawing a substantive conclusion."
+    }
+
+    baseline_interpretation <- if (nrow(baseline_supported) == 0) {
+      "No baseline AE-group comparison meets the corrected threshold under either extreme recoding."
+    } else if (length(robust_baseline) == 0) {
+      "There is a baseline signal under only one recoding assumption. Because it disappears when the same unknown participants are assigned to the other AE group, it is sensitive to unresolved AE classification and should be described as tentative rather than robust. It is also a baseline association, not evidence that entity encounters caused a different intervention outcome."
+    } else {
+      "At least one baseline difference is retained under both recoding assumptions. This is a cross-sectional association and does not by itself show that entity encounters caused the difference."
     }
 
     tagList(
       div(
         class = "interpretation-card",
-        h4("What the page says in the current data"),
-        p(summary_text),
+        h4("Interpretation of the current results"),
+        p(tags$strong(headline)),
+        p(change_interpretation),
+        p(baseline_interpretation),
         tags$div(class = "interpretation-meta", paste0(n_unknown, " participants are currently coded AE-unknown."))
+      ),
+      if (nrow(baseline_supported) > 0 || nrow(change_supported) > 0) div(
+        class = "interpretation-card",
+        h4("Corrected results that need attention"),
+        tags$ul(
+          supported_items(baseline_supported, "Baseline"),
+          supported_items(change_supported, "PRE-to-POST change")
+        )
       ),
       div(
         class = "interpretation-card",
-        h4("How to interpret a stable result"),
-        p("A result is more robust when its direction and inference are similar under both recoding scenarios. Stability does not turn the observational comparison into causal evidence; it only reduces dependence on the unknown-AE coding choice.")
+        h4("Bottom line"),
+        p("It is reasonable to conclude that there is no robust, FDR-supported evidence in these analyses that AE status is associated with a different response to the intervention. This is not the same as proving that anomalous or entity-encounter experiences have no relationship with outcomes: imprecise AE classification, missing data, modest subgroup sizes, and limited statistical power can all conceal a real association."),
+        p("The two recodings are deliberately extreme stress tests. Stability across them reduces dependence on the unknown-AE coding choice, but it does not convert this observational comparison into causal evidence.")
       )
     )
   })
