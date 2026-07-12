@@ -2,7 +2,7 @@
 
 required_packages <- c(
   "readxl", "writexl", "tidyverse", "janitor", "rstatix", "coin",
-  "broom", "gt"
+  "broom", "gt", "ggplot2"
 )
 
 use_project_library <- function(path = "r-lib") {

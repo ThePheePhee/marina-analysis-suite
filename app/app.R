@@ -17,6 +17,8 @@ library(shinydashboard)
 library(tidyverse)
 library(plotly)
 library(DT)
+source(file.path(project_root, "R", "metadata.R"))
+source(file.path(project_root, "R", "research_output_functions.R"))
 
 read_optional_csv <- function(path) {
   if (!file.exists(path)) {
@@ -61,6 +63,15 @@ ae_atlas_observations <- read_optional_csv(project_file("outputs", "tables", "ae
 ae_atlas_inventory <- read_optional_csv(project_file("outputs", "tables", "ae_atlas_inventory.csv"))
 ae_atlas_global <- read_optional_csv(project_file("outputs", "tables", "ae_atlas_global_tests.csv"))
 overall_signals <- read_optional_csv(project_file("outputs", "tables", "overall_signal_observations.csv"))
+research_answers <- read_optional_csv(project_file("outputs", "tables", "research_question_answers.csv"))
+research_sample_table <- read_optional_csv(project_file("outputs", "tables", "research_table_1_sample_characteristics.csv"))
+research_composite_tests <- read_optional_csv(project_file("outputs", "tables", "pre_composite_tests_by_ae.csv"))
+research_age_correlations <- read_optional_csv(project_file("outputs", "tables", "age_correlations.csv"))
+research_age_prevalence <- read_optional_csv(project_file("outputs", "tables", "ae_prevalence_by_age_group_test.csv"))
+research_ae_type_descriptives <- read_optional_csv(project_file("outputs", "tables", "ae_type_anxiety_descriptives.csv"))
+research_verification_descriptives <- read_optional_csv(project_file("outputs", "tables", "verification_anxiety_descriptives.csv"))
+analysis_plan_recommendations <- read_optional_csv(project_file("outputs", "tables", "analysis_plan_recommendations.csv"))
+research_tables_workbook <- project_file("outputs", "tables", "research_questions_all_tables.xlsx")
 
 has_data <- nrow(participants) > 0 && nrow(item_long) > 0
 
@@ -133,12 +144,29 @@ disclosure_list <- function(data, show_evidence = TRUE) {
   }))
 }
 
+research_figure_box <- function(title, output_id, caption, width = 6, height = "450px") {
+  box(
+    width = width,
+    title = title,
+    status = "primary",
+    solidHeader = TRUE,
+    plotOutput(output_id, height = height),
+    tags$p(class = "research-caption", caption),
+    tags$div(
+      class = "figure-actions",
+      downloadButton(paste0(output_id, "_png"), "PNG (300 dpi)", icon = icon("image")),
+      downloadButton(paste0(output_id, "_pdf"), "PDF (vector)", icon = icon("file-pdf"))
+    )
+  )
+}
+
 ui <- dashboardPage(
   skin = "black",
   dashboardHeader(title = "Marina Analysis Suite"),
   dashboardSidebar(
     sidebarMenu(
       menuItem("Overview", tabName = "overview", icon = icon("chart-pie")),
+      menuItem("Research Questions", tabName = "research", icon = icon("file-lines")),
       menuItem("Cleaning", tabName = "cleaning", icon = icon("broom")),
       menuItem("Distributions", tabName = "distributions", icon = icon("chart-area")),
       menuItem("Baseline AE Tests", tabName = "baseline", icon = icon("table")),
@@ -227,6 +255,29 @@ ui <- dashboardPage(
         border-radius: 4px;
         font-weight: 600;
       }
+      .research-lead {
+        border-left: 4px solid #007c91;
+        padding: 12px 15px;
+        background: #f2fafb;
+        color: #243746;
+        margin-bottom: 12px;
+      }
+      .research-answer {
+        border-left: 4px solid #007a5e;
+        padding: 13px 15px;
+        margin-bottom: 14px;
+        background: #ffffff;
+        border-top: 1px solid #d8dee8;
+        border-right: 1px solid #d8dee8;
+        border-bottom: 1px solid #d8dee8;
+      }
+      .research-answer h4 { margin: 0 0 6px; font-weight: 700; }
+      .research-answer .answer-conclusion { font-size: 16px; line-height: 1.45; color: #173b32; }
+      .research-answer details { margin-top: 8px; }
+      .research-answer summary { cursor: pointer; font-weight: 700; color: #00677a; }
+      .figure-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      .research-caption { color: #667085; font-size: 12px; line-height: 1.45; min-height: 34px; }
+      .export-note { color: #475467; margin-left: 10px; }
     "))),
     tabItems(
       tabItem(
@@ -239,6 +290,85 @@ ui <- dashboardPage(
           box(width = 6, title = "AE Status", status = "primary", solidHeader = TRUE, plotlyOutput("ae_status_plot")),
           box(width = 6, title = "Age Group", status = "primary", solidHeader = TRUE, plotlyOutput("age_group_plot")),
           box(width = 12, title = "Sample Characteristics", status = "primary", DTOutput("sample_table"))
+        )
+      ),
+      tabItem(
+        tabName = "research",
+        if (nrow(research_answers) == 0) empty_panel() else fluidRow(
+          box(
+            width = 12,
+            title = "Analysis-Plan Research Questions",
+            status = "primary",
+            solidHeader = TRUE,
+            tags$div(
+              class = "research-lead",
+              p("This page follows the original analysis plan: three prespecified research questions, complete-pair nonparametric tests, explicit effect sizes and denominators, and BH false-discovery-rate correction within each nine-item family."),
+              p("All conclusions are regenerated by scripts/10_research_questions.R from the current processed dataset. Figure exports are created with ggplot2; PNG files are 300 dpi and PDF files are vector graphics."),
+              p("Because the Likert responses contain many ties, the current Wilcoxon/Mann-Whitney p-values use the asymptotic implementation. The plan should specify this explicitly rather than requesting generic 'exact' p-values.")
+            ),
+            downloadButton("rq_all_tables_xlsx", "Download all tables (.xlsx)", icon = icon("file-excel")),
+            tags$span(class = "export-note", "Individual visible tables also provide Copy, CSV, and Excel export controls.")
+          ),
+          box(width = 12, title = "Direct Answers", status = "success", solidHeader = TRUE, uiOutput("rq_answer_cards")),
+          tabsetPanel(
+            id = "research_sections",
+            tabPanel(
+              "RQ1: Baseline",
+              fluidRow(
+                box(width = 12, title = "Baseline AE, Anxiety, and Wellbeing", status = "primary", solidHeader = TRUE,
+                    p("Primary outcome: PRE Item 6. Supporting analyses: all nine PRE items, the wellbeing composite, and the Items 5-6 distress subscale.")),
+                research_figure_box("Planned Figure 1", "rq_fig1", "Baseline Item 6 anxiety/fear by AE group, showing the full distribution and robust summaries."),
+                research_figure_box("Planned Figure 2", "rq_fig2", "Baseline nine-item wellbeing composite by AE group after reversing negatively directed Items 5 and 6."),
+                box(width = 12, title = "Table 2. PRE Item Scores by AE Group", status = "primary", solidHeader = TRUE, DTOutput("rq_table2")),
+                box(width = 12, title = "Prespecified Baseline Composite Tests", status = "primary", solidHeader = TRUE, DTOutput("rq_composite_table"))
+              )
+            ),
+            tabPanel(
+              "RQ2: Overall Change",
+              fluidRow(
+                box(width = 12, title = "Overall PRE-to-POST Change", status = "primary", solidHeader = TRUE,
+                    p("Change is direction-coded so positive values always indicate improvement. These are observed within-person changes, not causal estimates of program impact.")),
+                research_figure_box("Full-Sample Change Summary", "rq_full_change", "Paired rank-biserial effects for all nine outcomes, with planned BH FDR support highlighted.", width = 12, height = "540px"),
+                box(width = 12, title = "Table 3. Full-Sample PRE-to-POST Change", status = "primary", solidHeader = TRUE, DTOutput("rq_table3"))
+              )
+            ),
+            tabPanel(
+              "RQ3: AE Trajectories",
+              fluidRow(
+                box(width = 12, title = "Does Change Differ by AE Status?", status = "primary", solidHeader = TRUE,
+                    p("The planned second-order contrast compares improvement-coded change scores between AE-yes and AE-no participants.")),
+                research_figure_box("Planned Figure 3", "rq_fig3", "Observed PRE-to-POST Item 6 trajectories, retaining the original anxiety/fear scale so direction is unambiguous."),
+                research_figure_box("AE Change-Contrast Summary", "rq_ae_change", "Rank-biserial effects for the difference in change between AE-yes and AE-no groups."),
+                box(width = 12, title = "Table 4. PRE-to-POST Change by AE Group", status = "primary", solidHeader = TRUE, DTOutput("rq_table4"))
+              )
+            ),
+            tabPanel(
+              "Supporting Outputs",
+              fluidRow(
+                box(width = 12, title = "Planned Descriptive and Exploratory Outputs", status = "primary", solidHeader = TRUE,
+                    p("These outputs cover the plan's requested Item 5/6 frequency distributions, AE type and verification summaries, and age analyses.")),
+                research_figure_box("Requested Item 5/6 Distributions", "rq_item56", "Baseline frequency distributions for the two negatively valenced core outcomes."),
+                research_figure_box("Planned Figure 4", "rq_fig4", "Non-exclusive AE type frequencies among AE-yes participants, filled by verification route."),
+                box(width = 6, title = "Age Analyses", status = "primary", solidHeader = TRUE, DTOutput("rq_age_table")),
+                box(width = 6, title = "AE Type and Verification Descriptives", status = "primary", solidHeader = TRUE, DTOutput("rq_context_table")),
+                box(width = 12, title = "Table 1. Sample Characteristics", status = "primary", solidHeader = TRUE, DTOutput("rq_table1"))
+              )
+            ),
+            tabPanel(
+              "Plan Review",
+              fluidRow(
+                box(
+                  width = 12,
+                  title = "Comments on the Analysis Plan",
+                  status = "warning",
+                  solidHeader = TRUE,
+                  p("These recommendations distinguish changes needed before confirmatory reporting from useful refinements. They do not alter the original Word file."),
+                  downloadButton("rq_plan_comments_csv", "Download recommendations (.csv)", icon = icon("download")),
+                  DTOutput("rq_plan_recommendations")
+                )
+              )
+            )
+          )
         )
       ),
       tabItem(
@@ -408,7 +538,131 @@ ui <- dashboardPage(
   )
 )
 
-server <- function(input, output) {
+server <- function(input, output, session) {
+  research_datatable <- function(data, page_length = 10) {
+    datatable(
+      data,
+      rownames = FALSE,
+      filter = "top",
+      extensions = "Buttons",
+      options = list(
+        pageLength = page_length,
+        scrollX = TRUE,
+        dom = "Bfrtip",
+        buttons = c("copy", "csv", "excel")
+      )
+    )
+  }
+
+  output$rq_answer_cards <- renderUI({
+    tagList(lapply(seq_len(nrow(research_answers)), function(i) {
+      row <- research_answers[i, , drop = FALSE]
+      div(
+        class = "research-answer",
+        h4(paste0(row$question_id, ". ", row$research_question)),
+        p(class = "answer-conclusion", tags$strong(row$conclusion)),
+        p(row$primary_result),
+        tags$details(
+          tags$summary("Methods and interpretation limits"),
+          p(tags$strong("Analysis: "), row$method),
+          p(tags$strong("Interpretation limit: "), row$interpretation_limit)
+        )
+      )
+    }))
+  })
+
+  output$rq_table1 <- renderDT({
+    research_datatable(research_sample_table)
+  })
+
+  output$rq_table2 <- renderDT({
+    research_datatable(baseline_tests)
+  })
+
+  output$rq_composite_table <- renderDT({
+    research_datatable(research_composite_tests)
+  })
+
+  output$rq_table3 <- renderDT({
+    research_datatable(prepost_tests)
+  })
+
+  output$rq_table4 <- renderDT({
+    research_datatable(change_by_ae_tests)
+  })
+
+  output$rq_age_table <- renderDT({
+    age_rows <- dplyr::bind_rows(
+      research_age_correlations |> dplyr::mutate(analysis = "Spearman age correlation", .before = 1),
+      research_age_prevalence |> dplyr::mutate(analysis = "AE prevalence by age group", .before = 1)
+    )
+    research_datatable(age_rows, page_length = 6)
+  })
+
+  output$rq_context_table <- renderDT({
+    context_rows <- dplyr::bind_rows(
+      research_ae_type_descriptives |> dplyr::mutate(context = "AE type", .before = 1),
+      research_verification_descriptives |> dplyr::mutate(context = "Verification method", .before = 1)
+    )
+    research_datatable(context_rows, page_length = 8)
+  })
+
+  output$rq_plan_recommendations <- renderDT({
+    research_datatable(analysis_plan_recommendations, page_length = 13) |>
+      formatStyle(
+        "priority",
+        backgroundColor = styleEqual(c("Critical", "High", "Medium"), c("#fdecec", "#fff4df", "#eef4fb")),
+        color = styleEqual(c("Critical", "High", "Medium"), c("#9b1c1c", "#8a4b00", "#254f7a")),
+        fontWeight = "700"
+      )
+  })
+
+  output$rq_fig1 <- renderPlot(rq_plot_pre_anxiety(participants), res = 120)
+  output$rq_fig2 <- renderPlot(rq_plot_pre_wellbeing(participants), res = 120)
+  output$rq_fig3 <- renderPlot(rq_plot_item6_paired(item_long, participants), res = 120)
+  output$rq_fig4 <- renderPlot(rq_plot_ae_types(participants), res = 120)
+  output$rq_item56 <- renderPlot(rq_plot_item_5_6_distributions(item_long, participants), res = 120)
+  output$rq_full_change <- renderPlot(rq_plot_full_sample_change(prepost_tests), res = 120)
+  output$rq_ae_change <- renderPlot(rq_plot_ae_change_contrasts(change_by_ae_tests), res = 120)
+
+  plot_download_specs <- list(
+    rq_fig1 = list(plot = function() rq_plot_pre_anxiety(participants), stem = "figure_1_pre_anxiety", width = 7.2, height = 5.2),
+    rq_fig2 = list(plot = function() rq_plot_pre_wellbeing(participants), stem = "figure_2_pre_wellbeing", width = 7.2, height = 5.2),
+    rq_fig3 = list(plot = function() rq_plot_item6_paired(item_long, participants), stem = "figure_3_prepost_item6", width = 8.2, height = 5.5),
+    rq_fig4 = list(plot = function() rq_plot_ae_types(participants), stem = "figure_4_ae_types_verification", width = 8.2, height = 5.8),
+    rq_item56 = list(plot = function() rq_plot_item_5_6_distributions(item_long, participants), stem = "supplementary_figure_1_item5_6_distributions", width = 9, height = 6.2),
+    rq_full_change = list(plot = function() rq_plot_full_sample_change(prepost_tests), stem = "supplementary_figure_2_full_sample_change", width = 9, height = 6),
+    rq_ae_change = list(plot = function() rq_plot_ae_change_contrasts(change_by_ae_tests), stem = "supplementary_figure_3_ae_change_contrasts", width = 9, height = 6)
+  )
+
+  purrr::iwalk(plot_download_specs, function(spec, id) {
+    local({
+      plot_spec <- spec
+      plot_id <- id
+      output[[paste0(plot_id, "_png")]] <- downloadHandler(
+        filename = function() paste0(plot_spec$stem, ".png"),
+        content = function(file) ggplot2::ggsave(file, plot_spec$plot(), width = plot_spec$width, height = plot_spec$height, dpi = 300, bg = "white")
+      )
+      output[[paste0(plot_id, "_pdf")]] <- downloadHandler(
+        filename = function() paste0(plot_spec$stem, ".pdf"),
+        content = function(file) ggplot2::ggsave(file, plot_spec$plot(), width = plot_spec$width, height = plot_spec$height, bg = "white")
+      )
+    })
+  })
+
+  output$rq_all_tables_xlsx <- downloadHandler(
+    filename = function() "research_questions_all_tables.xlsx",
+    content = function(file) {
+      validate(need(file.exists(research_tables_workbook), "Run scripts/10_research_questions.R first."))
+      file.copy(research_tables_workbook, file, overwrite = TRUE)
+    }
+  )
+
+  output$rq_plan_comments_csv <- downloadHandler(
+    filename = function() "analysis_plan_recommendations.csv",
+    content = function(file) readr::write_csv(analysis_plan_recommendations, file, na = "")
+  )
+
   output$n_participants <- renderValueBox({
     valueBox(nrow(participants), "Participants", icon = icon("users"), color = "aqua")
   })

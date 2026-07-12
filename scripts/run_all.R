@@ -9,5 +9,6 @@ source("scripts/06_sensitivity_ae_unknown.R")
 source("scripts/07_key_differences.R")
 source("scripts/08_observations.R")
 source("scripts/09_ae_relationship_atlas.R")
+source("scripts/10_research_questions.R")
 
 message("Full analysis pipeline complete.")

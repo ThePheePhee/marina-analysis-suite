@@ -55,6 +55,7 @@ source("scripts/06_sensitivity_ae_unknown.R")
 source("scripts/07_key_differences.R")
 source("scripts/08_observations.R")
 source("scripts/09_ae_relationship_atlas.R")
+source("scripts/10_research_questions.R")
 ```
 
 Or run everything:
@@ -79,7 +80,16 @@ After running `01_import_clean.R` at minimum:
 shiny::runApp("app")
 ```
 
-The app displays cleaning flags, sample characteristics, item distributions, primary baseline comparisons, direction-explicit AE change contrasts, a 145-observation AE Relationship Atlas with expandable calculation details, an Overall Signal synthesis, AE type/verification summaries, and sensitivity-analysis outputs when available.
+The app displays cleaning flags, sample characteristics, item distributions, primary baseline comparisons, direction-explicit AE change contrasts, a research-question page aligned to the original analysis plan with manuscript-ready exports, a 145-observation AE Relationship Atlas with expandable calculation details, an Overall Signal synthesis, AE type/verification summaries, and sensitivity-analysis outputs when available.
+
+The Research Questions page provides:
+
+- Direct, data-dependent answers to each research question in the analysis plan.
+- The four planned figures, the requested PRE Item 5/6 distributions, and two effect-summary figures, all generated with ggplot2.
+- Per-figure 300-dpi PNG and vector PDF downloads.
+- Copy, CSV, and Excel controls for every displayed results table.
+- A single Excel workbook containing all manuscript tables.
+- Prioritized recommendations for strengthening the analysis plan.
 
 ## Build the Static GitHub Pages Snapshot
 
