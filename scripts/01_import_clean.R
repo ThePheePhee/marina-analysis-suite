@@ -164,6 +164,62 @@ cleaning_flags <- participant_analysis |>
     ae_type_raw,
     verified_by_raw,
     verification_method
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    review_priority = "Decision required",
+    why_review_needed = paste(c(
+      if (isTRUE(age_uncertain_flag)) "Age was supplied as a grade, an approximate value, or an otherwise ambiguous entry." else NULL,
+      if (isTRUE(age_outside_plan_range)) "Parsed age falls outside the analysis-plan range of 5 to 15 years." else NULL,
+      if (isTRUE(ae_unknown_flag)) "AE status was blank, '?', or another value that could not be classified as yes or no." else NULL,
+      if (isTRUE(verification_method == "other_unclear")) "Verification text did not match a prespecified verification category." else NULL
+    ), collapse = " "),
+    action_required = paste(c(
+      if (isTRUE(age_uncertain_flag)) "Confirm the intended numeric age; amend the source value or document the recoding decision." else NULL,
+      if (isTRUE(age_outside_plan_range)) "Confirm eligibility for the planned 5-15-year analytic range." else NULL,
+      if (isTRUE(ae_unknown_flag)) "Resolve the intended AE status as yes, no, or genuinely unknown where source information permits." else NULL,
+      if (isTRUE(verification_method == "other_unclear")) "Classify the verification route, or confirm that it should remain uncategorised." else NULL
+    ), collapse = " "),
+    current_automated_handling = paste(c(
+      if (isTRUE(age_uncertain_flag)) "Retained the parsed or grade-midpoint age and flagged it." else NULL,
+      if (isTRUE(age_outside_plan_range)) "Retained the participant and labelled the age group outside_plan_range." else NULL,
+      if (isTRUE(ae_unknown_flag)) "Kept AE status as unknown; excluded it from the primary AE yes/no comparison and retained it for sensitivity analyses." else NULL,
+      if (isTRUE(verification_method == "other_unclear")) "Kept the raw text and assigned verification_method = other_unclear." else NULL
+    ), collapse = " "),
+    affected_analysis = paste(c(
+      if (isTRUE(age_uncertain_flag) || isTRUE(age_outside_plan_range)) "Age-adjusted and age-interaction models." else NULL,
+      if (isTRUE(ae_unknown_flag)) "Primary AE comparisons, AE atlas, and AE sensitivity analyses." else NULL,
+      if (isTRUE(verification_method == "other_unclear")) "Verification-route exploratory analyses." else NULL
+    ), collapse = " ")
+  ) |>
+  dplyr::ungroup()
+
+item_cleaning_flags <- item_long |>
+  dplyr::filter(score_out_of_range | participant_150_post_item_8_dash) |>
+  dplyr::transmute(
+    participant_id,
+    timepoint,
+    item,
+    label,
+    score_raw,
+    score,
+    review_priority = "Confirm source entry",
+    why_review_needed = dplyr::case_when(
+      score_out_of_range ~ "The numeric score is outside the valid 1-10 response range.",
+      participant_150_post_item_8_dash ~ "The source contains a dash rather than a POST Item 8 score.",
+      TRUE ~ "The item requires source verification."
+    ),
+    action_required = dplyr::case_when(
+      score_out_of_range ~ "Confirm the intended score and correct the source record if it is a transcription error.",
+      participant_150_post_item_8_dash ~ "Verify that the dash denotes intentional missingness; if it does, no further change is needed.",
+      TRUE ~ "Verify the source entry."
+    ),
+    current_automated_handling = dplyr::case_when(
+      score_out_of_range ~ "Retained the value but marked score_out_of_range = TRUE.",
+      participant_150_post_item_8_dash ~ "Converted the dash to missing (NA), as specified in the analysis plan.",
+      TRUE ~ "No automated correction applied."
+    ),
+    affected_analysis = "Item-level and paired PRE-to-POST analyses involving this item."
   )
 
 write_csv_safe(participant_analysis, "data/processed/participant_analysis.csv")
@@ -173,6 +229,8 @@ write_csv_safe(missingness_item, "outputs/tables/missingness_by_item.csv")
 write_csv_safe(pre_post_completeness, "outputs/tables/pre_post_completeness.csv")
 write_csv_safe(row_number_gaps, "outputs/tables/missing_participant_ids_for_review.csv")
 write_csv_safe(cleaning_flags, "outputs/tables/cleaning_flags_for_review.csv")
+write_csv_safe(item_cleaning_flags, "outputs/tables/item_cleaning_flags_for_review.csv")
 
 message("Cleaned participant data written to data/processed/participant_analysis.csv")
 message("Human-review flags written to outputs/tables/cleaning_flags_for_review.csv")
+message("Item-level review flags written to outputs/tables/item_cleaning_flags_for_review.csv")

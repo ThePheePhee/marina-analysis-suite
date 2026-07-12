@@ -41,6 +41,8 @@ baseline_tests <- read_optional_csv(project_file("outputs", "tables", "table_2_p
 prepost_tests <- read_optional_csv(project_file("outputs", "tables", "table_3_prepost_full_sample_tests.csv"))
 change_by_ae_tests <- read_optional_csv(project_file("outputs", "tables", "table_4_prepost_change_by_ae_tests.csv"))
 cleaning_flags <- read_optional_csv(project_file("outputs", "tables", "cleaning_flags_for_review.csv"))
+missing_id_flags <- read_optional_csv(project_file("outputs", "tables", "missing_participant_ids_for_review.csv"))
+item_cleaning_flags <- read_optional_csv(project_file("outputs", "tables", "item_cleaning_flags_for_review.csv"))
 ae_type_freq <- read_optional_csv(project_file("outputs", "tables", "ae_type_frequencies.csv"))
 verification_freq <- read_optional_csv(project_file("outputs", "tables", "verification_method_frequencies.csv"))
 sensitivity_baseline <- read_optional_csv(project_file("outputs", "tables", "sensitivity_baseline_pre_items_unknown_recode.csv"))
@@ -209,6 +211,22 @@ ui <- dashboardPage(
       .disclosure-body h5 { font-weight: 700; margin: 10px 0 3px; }
       .disclosure-body p { margin: 0 0 6px; }
       .atlas-filter-note { color: #667085; font-size: 12px; margin-top: 8px; }
+      .cleaning-note {
+        border-left: 3px solid #d17b00;
+        background: #fffaf0;
+        padding: 11px 13px;
+        margin-bottom: 12px;
+        color: #5b4214;
+      }
+      .cleaning-summary {
+        display: inline-block;
+        margin: 0 8px 8px 0;
+        padding: 7px 10px;
+        background: #fff3e0;
+        border: 1px solid #f2c27c;
+        border-radius: 4px;
+        font-weight: 600;
+      }
     "))),
     tabItems(
       tabItem(
@@ -226,7 +244,28 @@ ui <- dashboardPage(
       tabItem(
         tabName = "cleaning",
         if (nrow(cleaning_flags) == 0) empty_panel() else fluidRow(
-          box(width = 12, title = "Rows Needing Human Review", status = "warning", solidHeader = TRUE, DTOutput("cleaning_table"))
+          box(
+            width = 12,
+            title = "What Needs a Decision",
+            status = "warning",
+            solidHeader = TRUE,
+            tags$div(
+              class = "cleaning-note",
+              "Each row below states why it was flagged, the exact source decision needed, and what the pipeline currently does until that decision is recorded. The original workbook is never overwritten."
+            ),
+            uiOutput("cleaning_action_summary")
+          ),
+          box(width = 12, title = "Participant Rows Requiring Review", status = "warning", solidHeader = TRUE, DTOutput("cleaning_table")),
+          box(width = 6, title = "Missing Participant-Number Gaps", status = "warning", solidHeader = TRUE, DTOutput("missing_id_table")),
+          box(width = 6, title = "Item-Level Source Checks", status = "warning", solidHeader = TRUE, DTOutput("item_cleaning_table")),
+          box(
+            width = 12,
+            title = "Where Cleaned Data Are Saved",
+            status = "primary",
+            solidHeader = TRUE,
+            p("The pipeline writes regenerated local analysis files to data/processed/participant_analysis.csv, data/processed/item_long.csv, and data/processed/composites.csv."),
+            p("These files are excluded from Git and the public static dashboard. They are overwritten whenever scripts/01_import_clean.R or scripts/run_all.R is run; make corrections in the source data or a documented correction step, then rerun the pipeline.")
+          )
         )
       ),
       tabItem(
@@ -423,9 +462,51 @@ server <- function(input, output) {
   })
 
   output$cleaning_table <- renderDT({
-    cleaning_flags |>
+    review_rows <- cleaning_flags |>
       filter(age_uncertain_flag | age_outside_plan_range | ae_unknown_flag | verification_method == "other_unclear") |>
-      datatable(filter = "top", options = list(pageLength = 25, scrollX = TRUE), rownames = FALSE)
+      select(
+        review_priority, participant_id, why_review_needed, action_required,
+        current_automated_handling, affected_analysis, age_raw, age, ae_raw,
+        ae_status, ae_type_raw, verified_by_raw, verification_method
+      )
+
+    datatable(review_rows, filter = "top", options = list(pageLength = 25, scrollX = TRUE), rownames = FALSE) |>
+      formatStyle("review_priority", backgroundColor = "#fff3e0", color = "#8a4b00", fontWeight = "700") |>
+      formatStyle("action_required", backgroundColor = "#fffaf0", fontWeight = "600")
+  })
+
+  output$cleaning_action_summary <- renderUI({
+    flagged_rows <- cleaning_flags |>
+      filter(age_uncertain_flag | age_outside_plan_range | ae_unknown_flag | verification_method == "other_unclear")
+
+    tagList(
+      tags$span(class = "cleaning-summary", paste(nrow(flagged_rows), "participant rows require a decision")),
+      tags$span(class = "cleaning-summary", paste(sum(flagged_rows$ae_unknown_flag, na.rm = TRUE), "ambiguous AE-status entries")),
+      tags$span(class = "cleaning-summary", paste(sum(flagged_rows$age_uncertain_flag, na.rm = TRUE), "uncertain age entries")),
+      tags$span(class = "cleaning-summary", paste(sum(flagged_rows$age_outside_plan_range, na.rm = TRUE), "age outside planned range")),
+      tags$span(class = "cleaning-summary", paste(nrow(missing_id_flags), "participant-number gaps"))
+    )
+  })
+
+  output$missing_id_table <- renderDT({
+    missing_id_flags |>
+      mutate(
+        review_priority = "Confirm source record",
+        action_required = "Confirm whether this number represents withdrawal, an intentional omission, or a missing data row.",
+        current_automated_handling = "No participant row is created; the gap is documented only.",
+        affected_analysis = "Sample-size accounting and any attempt to link records by participant number."
+      ) |>
+      select(review_priority, participant_id, review_question, action_required, current_automated_handling, affected_analysis) |>
+      datatable(options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE) |>
+      formatStyle("review_priority", backgroundColor = "#fff3e0", color = "#8a4b00", fontWeight = "700") |>
+      formatStyle("action_required", backgroundColor = "#fffaf0", fontWeight = "600")
+  })
+
+  output$item_cleaning_table <- renderDT({
+    item_cleaning_flags |>
+      datatable(options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE) |>
+      formatStyle("review_priority", backgroundColor = "#fff3e0", color = "#8a4b00", fontWeight = "700") |>
+      formatStyle("action_required", backgroundColor = "#fffaf0", fontWeight = "600")
   })
 
   selected_distribution_data <- reactive({
