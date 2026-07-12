@@ -46,6 +46,10 @@ missingness <- read_output("missingness_by_item.csv")
 sensitivity_baseline <- read_output("sensitivity_baseline_pre_items_unknown_recode.csv")
 sensitivity_change <- read_output("sensitivity_prepost_change_unknown_recode.csv")
 missing_ids <- read_output("missing_participant_ids_for_review.csv")
+composite_ae <- read_output("composite_score_ae_tests.csv")
+composite_full_change <- read_output("composite_score_full_change.csv")
+composite_age <- read_output("composite_score_age_correlations.csv")
+composite_reliability <- read_output("composite_score_reliability.csv")
 
 read_private_processed <- function(name) {
   path <- file.path("data", "processed", name)
@@ -57,6 +61,7 @@ read_private_processed <- function(name) {
 
 participants_private <- read_private_processed("participant_analysis.csv")
 item_long_private <- read_private_processed("item_long.csv")
+composite_private <- read_private_processed("composite_scores_joint.csv")
 
 box_summary <- function(x) {
   x <- x[!is.na(x)]
@@ -107,6 +112,18 @@ pre_wellbeing_box <- participants_private |>
     q3,
     max
   )
+
+composite_baseline_box <- composite_private |>
+  dplyr::filter(ae_status_primary %in% c("yes", "no")) |>
+  dplyr::group_by(ae_status_primary) |>
+  dplyr::summarise(box_summary(composite_pre), .groups = "drop") |>
+  dplyr::transmute(label = paste("AE", ae_status_primary), n, min, q1, median, q3, max)
+
+composite_change_box <- composite_private |>
+  dplyr::filter(ae_status_primary %in% c("yes", "no")) |>
+  dplyr::group_by(ae_status_primary) |>
+  dplyr::summarise(box_summary(composite_change), .groups = "drop") |>
+  dplyr::transmute(label = paste("AE", ae_status_primary), n, min, q1, median, q3, max)
 
 total_n <- sum(ae_prev$n, na.rm = TRUE)
 yes_n <- ae_prev$n[match("yes", ae_prev$ae_status)]
@@ -249,6 +266,37 @@ sensitivity_change_table <- sensitivity_change |>
     `Rank-biserial r` = fmt_num(rank_biserial_r, 3)
   )
 
+composite_ae_table <- composite_ae |>
+  dplyr::transmute(
+    Analysis = analysis,
+    `N yes` = n_yes,
+    `N no` = n_no,
+    `Median IQR yes` = median_iqr_yes,
+    `Median IQR no` = median_iqr_no,
+    `p` = fmt_num(p_value, 4),
+    `FDR p` = fmt_num(p_fdr, 4),
+    `Rank-biserial r` = fmt_num(rank_biserial_r, 3),
+    Magnitude = effect_magnitude
+  )
+
+composite_age_table <- composite_age |>
+  dplyr::transmute(
+    Analysis = analysis,
+    Group = group,
+    N = n,
+    `Spearman rho` = fmt_num(spearman_rho, 3),
+    `p` = fmt_num(p_value, 4),
+    `FDR p` = fmt_num(p_fdr, 4)
+  )
+
+composite_reliability_table <- composite_reliability |>
+  dplyr::transmute(
+    Timepoint = timepoint,
+    `Complete all 9` = n_complete_all_9,
+    `Items` = n_items,
+    `Cronbach alpha` = fmt_num(cronbach_alpha, 3)
+  )
+
 chart_data <- list(
   aeStatus = ae_prev |>
     dplyr::transmute(label = stringr::str_to_sentence(ae_status), value = n),
@@ -259,7 +307,9 @@ chart_data <- list(
   prepost = prepost |>
     dplyr::transmute(label = paste0("Item ", item), value = rank_biserial_r),
   preItem6Box = pre_item6_box,
-  preWellbeingBox = pre_wellbeing_box
+  preWellbeingBox = pre_wellbeing_box,
+  compositeBaselineBox = composite_baseline_box,
+  compositeChangeBox = composite_change_box
 )
 
 dashboard_data <- list(
@@ -277,7 +327,10 @@ dashboard_data <- list(
     age = age_table,
     missingness = missingness_table,
     sensitivityBaseline = sensitivity_baseline_table,
-    sensitivityChange = sensitivity_change_table
+    sensitivityChange = sensitivity_change_table,
+    compositeAe = composite_ae_table,
+    compositeAge = composite_age_table,
+    compositeReliability = composite_reliability_table
   )
 )
 
@@ -561,6 +614,8 @@ renderBarChart('verificationChart', data.charts.verification, { color: '#db7f67'
 renderDivergingChart('prepostChart', data.charts.prepost);
 renderBoxChart('preItem6BoxChart', data.charts.preItem6Box, { min: 1, max: 10, caption: 'PRE Item 6 score' });
 renderBoxChart('preWellbeingBoxChart', data.charts.preWellbeingBox, { min: 1, max: 10, caption: 'PRE wellbeing composite' });
+renderBoxChart('compositeBaselineBoxChart', data.charts.compositeBaselineBox, { min: 1, max: 10, caption: 'Baseline joint composite' });
+renderBoxChart('compositeChangeBoxChart', data.charts.compositeChangeBox, { caption: 'Joint composite change' });
 Object.entries(data.tables).forEach(([key, rows]) => renderTable(`table-${key}`, rows));
 setupTabs();
 document.getElementById('generatedAt').textContent = data.generatedAt;
@@ -587,6 +642,7 @@ html <- paste0(
     <button class='tab active' data-tab='overview'>Overview</button>
     <button class='tab' data-tab='baseline'>Baseline</button>
     <button class='tab' data-tab='prepost'>Pre-post</button>
+    <button class='tab' data-tab='composites'>Composite scores</button>
     <button class='tab' data-tab='ae'>AE summaries</button>
     <button class='tab' data-tab='quality'>Data quality</button>
     <button class='tab' data-tab='sensitivity'>Sensitivity</button>
@@ -615,6 +671,19 @@ html <- paste0(
   <section id='prepost' class='section'>
     <h2>Full Sample Pre-post Change</h2><div class='card' id='table-prepost'></div>
     <h2>Pre-post Change by AE Group</h2><div class='card' id='table-changeByAe'></div>
+  </section>
+
+  <section id='composites' class='section'>
+    <h2>Exploratory Joint Composite</h2>
+    <p class='note'>All nine paired items are combined after reversing Items 5 and 6 so higher values consistently indicate a more favourable response. At least 7 of 9 items are required, and change uses at least 7 identical PRE/POST item pairs. This broad index is exploratory, not a validated unidimensional scale.</p>
+    <div class='grid cards-2'>
+      <div class='card'><h3>Baseline composite by AE group</h3><div id='compositeBaselineBoxChart'></div></div>
+      <div class='card'><h3>Composite change by AE group</h3><div id='compositeChangeBoxChart'></div></div>
+    </div>
+    <h2>AE-Group Comparisons</h2><div class='card' id='table-compositeAe'></div>
+    <h2>Age Correlations</h2><div class='card' id='table-compositeAge'></div>
+    <h2>Internal Consistency</h2><div class='card' id='table-compositeReliability'></div>
+    <p class='note'>The public snapshot displays only aggregate summaries. Participant-level age scatterplots and adjusted models remain in the private local Shiny dashboard.</p>
   </section>
 
   <section id='ae' class='section'>

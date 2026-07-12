@@ -38,6 +38,7 @@ change_path <- project_file("data", "processed", "change_scores.csv")
 participants <- read_optional_csv(participant_path)
 item_long <- read_optional_csv(item_path)
 change_scores <- read_optional_csv(change_path)
+composite_scores <- read_optional_csv(project_file("data", "processed", "composite_scores_joint.csv"))
 
 baseline_tests <- read_optional_csv(project_file("outputs", "tables", "table_2_pre_item_tests_by_ae.csv"))
 prepost_tests <- read_optional_csv(project_file("outputs", "tables", "table_3_prepost_full_sample_tests.csv"))
@@ -71,6 +72,13 @@ research_age_prevalence <- read_optional_csv(project_file("outputs", "tables", "
 research_ae_type_descriptives <- read_optional_csv(project_file("outputs", "tables", "ae_type_anxiety_descriptives.csv"))
 research_verification_descriptives <- read_optional_csv(project_file("outputs", "tables", "verification_anxiety_descriptives.csv"))
 analysis_plan_recommendations <- read_optional_csv(project_file("outputs", "tables", "analysis_plan_recommendations.csv"))
+composite_definition <- read_optional_csv(project_file("outputs", "tables", "composite_score_definition.csv"))
+composite_descriptives <- read_optional_csv(project_file("outputs", "tables", "composite_score_descriptives.csv"))
+composite_ae_tests <- read_optional_csv(project_file("outputs", "tables", "composite_score_ae_tests.csv"))
+composite_full_change <- read_optional_csv(project_file("outputs", "tables", "composite_score_full_change.csv"))
+composite_age_correlations <- read_optional_csv(project_file("outputs", "tables", "composite_score_age_correlations.csv"))
+composite_models <- read_optional_csv(project_file("outputs", "tables", "composite_score_models.csv"))
+composite_reliability <- read_optional_csv(project_file("outputs", "tables", "composite_score_reliability.csv"))
 research_tables_workbook <- project_file("outputs", "tables", "research_questions_all_tables.xlsx")
 
 has_data <- nrow(participants) > 0 && nrow(item_long) > 0
@@ -172,6 +180,7 @@ ui <- dashboardPage(
       menuItem("Distributions", tabName = "distributions", icon = icon("chart-area")),
       menuItem("Baseline AE Tests", tabName = "baseline", icon = icon("table")),
       menuItem("Pre-Post Change", tabName = "prepost", icon = icon("arrows-rotate")),
+      menuItem("Composite Scores", tabName = "composites", icon = icon("layer-group")),
       menuItem("Key Differences", tabName = "keydiff", icon = icon("magnifying-glass-chart")),
       menuItem("AE Relationship Atlas", tabName = "aeatlas", icon = icon("diagram-project")),
       menuItem("Overall Signal", tabName = "overall", icon = icon("signal")),
@@ -468,6 +477,31 @@ ui <- dashboardPage(
           box(width = 6, title = "Full-Sample PRE to POST Tests", status = "primary", solidHeader = TRUE, DTOutput("prepost_table")),
           box(width = 6, title = "Change by AE Group", status = "primary", solidHeader = TRUE, DTOutput("change_by_ae_table")),
           box(width = 12, title = "Change Scores by Item", status = "primary", plotlyOutput("change_plot"))
+        )
+      ),
+      tabItem(
+        tabName = "composites",
+        if (nrow(composite_scores) == 0) empty_panel() else fluidRow(
+          box(
+            width = 12,
+            title = "How the Joint Composite Is Defined",
+            status = "primary",
+            solidHeader = TRUE,
+            p("This exploratory index combines all nine paired questionnaire items. Items 5 and 6 are reversed so that higher values consistently indicate a more favourable response; the score is then the mean of the available items on the original 1-10 scale."),
+            p("At least 7 of 9 responses are required. Change is calculated from at least 7 items for which the same participant has both PRE and POST answers, ensuring that PRE and POST are compared on identical item content."),
+            p(tags$strong("Important:"), " The items cover several constructs, so this index is a broad joint summary rather than a validated unidimensional wellbeing scale. Item-level results remain the primary way to identify which outcomes changed."),
+            DTOutput("composite_definition_table")
+          ),
+          box(width = 12, title = "What the Composite Analysis Shows", status = "success", solidHeader = TRUE, uiOutput("composite_interpretation")),
+          box(width = 6, title = "Baseline Composite by AE Group", status = "primary", solidHeader = TRUE, plotlyOutput("composite_baseline_plot")),
+          box(width = 6, title = "Composite Change by AE Group", status = "primary", solidHeader = TRUE, plotlyOutput("composite_change_plot")),
+          box(width = 6, title = "Age and Baseline Composite", status = "primary", solidHeader = TRUE, plotlyOutput("composite_age_baseline_plot")),
+          box(width = 6, title = "Age and Composite Change", status = "primary", solidHeader = TRUE, plotlyOutput("composite_age_change_plot")),
+          box(width = 12, title = "AE-Yes vs AE-No Composite Tests", status = "primary", solidHeader = TRUE, DTOutput("composite_ae_table")),
+          box(width = 12, title = "Age Correlations", status = "primary", solidHeader = TRUE, DTOutput("composite_age_table")),
+          box(width = 8, title = "Adjusted Models", status = "primary", solidHeader = TRUE, DTOutput("composite_model_table")),
+          box(width = 4, title = "Internal Consistency", status = "warning", solidHeader = TRUE, DTOutput("composite_reliability_table")),
+          box(width = 12, title = "AE-Group Descriptive Statistics", status = "primary", solidHeader = TRUE, DTOutput("composite_descriptive_table"))
         )
       ),
       tabItem(
@@ -1243,6 +1277,176 @@ server <- function(input, output, session) {
       labs(x = "Item", y = "Change, scored so positive = improvement") +
       theme_minimal(base_size = 12)
     ggplotly(p)
+  })
+
+  output$composite_interpretation <- renderUI({
+    validate(need(nrow(composite_ae_tests) > 0, "Run scripts/11_composite_scores.R first."))
+
+    format_p <- function(x) {
+      if (is.na(x)) return("not estimable")
+      if (x < 0.001) format(x, scientific = TRUE, digits = 2) else formatC(x, format = "f", digits = 3)
+    }
+
+    baseline_ae <- composite_ae_tests |> filter(analysis == "Baseline joint composite") |> slice(1)
+    change_ae <- composite_ae_tests |> filter(analysis == "PRE-to-POST joint composite change") |> slice(1)
+    age_baseline <- composite_age_correlations |> filter(analysis == "Age vs baseline joint composite", group == "All participants") |> slice(1)
+    age_change <- composite_age_correlations |> filter(analysis == "Age vs joint composite change", group == "All participants") |> slice(1)
+    adjusted_age_change <- composite_models |> filter(analysis == "Change model adjusted for paired baseline composite", term == "Age (per year)") |> slice(1)
+    pre_alpha <- composite_reliability |> filter(timepoint == "PRE") |> slice(1)
+    post_alpha <- composite_reliability |> filter(timepoint == "POST") |> slice(1)
+    full_change <- composite_full_change |> slice(1)
+
+    tagList(
+      div(
+        class = "interpretation-card",
+        h4("Overall joint change"),
+        p(
+          paste0(
+            "Across ", full_change$n_pairs, " participants with sufficient paired data, the median joint-composite change was ",
+            full_change$median_iqr_change, ". Positive values indicate a more favourable POST response. The full-sample paired test gives p = ",
+            format_p(full_change$p_value), " with paired rank-biserial r = ", formatC(full_change$rank_biserial_r, format = "f", digits = 2),
+            ", indicating a clear overall improvement signal. Without an untreated comparison group, this remains observed change rather than a causal program effect."
+          )
+        )
+      ),
+      div(
+        class = "interpretation-card",
+        h4("AE-yes compared with AE-no"),
+        p(
+          paste0(
+            "At baseline, the AE-yes median was ", baseline_ae$median_iqr_yes, " and the AE-no median was ", baseline_ae$median_iqr_no,
+            " (rank-biserial r = ", formatC(baseline_ae$rank_biserial_r, format = "f", digits = 2),
+            "; BH FDR q = ", format_p(baseline_ae$p_fdr), "). This does not meet the corrected threshold."
+          )
+        ),
+        p(
+          paste0(
+            "For PRE-to-POST change, the AE-yes median was ", change_ae$median_iqr_yes, " and the AE-no median was ", change_ae$median_iqr_no,
+            " (rank-biserial r = ", formatC(change_ae$rank_biserial_r, format = "f", digits = 2),
+            "; BH FDR q = ", format_p(change_ae$p_fdr), "). The composite therefore provides no corrected evidence that the AE groups started differently overall or changed differently overall."
+          )
+        )
+      ),
+      div(
+        class = "interpretation-card",
+        h4("Age relationships"),
+        p(
+          paste0(
+            "Age has a negative correlation with the baseline composite (Spearman rho = ",
+            formatC(age_baseline$spearman_rho, format = "f", digits = 2), "; BH FDR q = ", format_p(age_baseline$p_fdr),
+            "): older participants tended to report less favourable joint baseline scores. This pattern is also visible separately within both AE-yes and AE-no participants in the table below."
+          )
+        ),
+        p(
+          paste0(
+            "Age is not associated with raw composite change (rho = ", formatC(age_change$spearman_rho, format = "f", digits = 2),
+            "; BH FDR q = ", format_p(age_change$p_fdr), "). In the exploratory regression that conditions on the paired baseline composite and AE status, each additional year is associated with ",
+            formatC(abs(adjusted_age_change$estimate), format = "f", digits = 2), " points less favourable change (p = ", format_p(adjusted_age_change$p.value),
+            "). Because baseline-adjusted change can be influenced by ceiling effects and regression to the mean, this adjusted age result should be treated as hypothesis-generating."
+          )
+        )
+      ),
+      div(
+        class = "interpretation-card",
+        h4("Does combining the items make psychometric sense?"),
+        p(
+          paste0(
+            "Complete-case Cronbach alpha is ", formatC(pre_alpha$cronbach_alpha, format = "f", digits = 2), " at PRE and ",
+            formatC(post_alpha$cronbach_alpha, format = "f", digits = 2), " at POST. This suggests moderate internal consistency at PRE and stronger consistency at POST, but it does not establish that the nine items measure one construct. The composite should remain an exploratory summary alongside the item-level analyses."
+          )
+        )
+      )
+    )
+  })
+
+  output$composite_baseline_plot <- renderPlotly({
+    p <- composite_scores |>
+      filter(ae_status_primary %in% c("yes", "no"), !is.na(composite_pre)) |>
+      ggplot(aes(ae_status_primary, composite_pre, fill = ae_status_primary)) +
+      geom_violin(trim = FALSE, alpha = 0.45, color = NA) +
+      geom_boxplot(width = 0.16, outlier.shape = NA, alpha = 0.85) +
+      geom_jitter(width = 0.10, alpha = 0.4, size = 1.4) +
+      scale_fill_manual(values = c(yes = "#2878a8", no = "#7a8793")) +
+      labs(x = "AE group", y = "Baseline joint composite (1-10)") +
+      theme_minimal(base_size = 12) +
+      theme(legend.position = "none")
+    ggplotly(p)
+  })
+
+  output$composite_change_plot <- renderPlotly({
+    p <- composite_scores |>
+      filter(ae_status_primary %in% c("yes", "no"), !is.na(composite_change)) |>
+      ggplot(aes(ae_status_primary, composite_change, fill = ae_status_primary)) +
+      geom_hline(yintercept = 0, color = "#475569", linetype = 2) +
+      geom_violin(trim = FALSE, alpha = 0.45, color = NA) +
+      geom_boxplot(width = 0.16, outlier.shape = NA, alpha = 0.85) +
+      geom_jitter(width = 0.10, alpha = 0.4, size = 1.4) +
+      scale_fill_manual(values = c(yes = "#2878a8", no = "#7a8793")) +
+      labs(x = "AE group", y = "Joint composite change") +
+      theme_minimal(base_size = 12) +
+      theme(legend.position = "none")
+    ggplotly(p)
+  })
+
+  output$composite_age_baseline_plot <- renderPlotly({
+    p <- composite_scores |>
+      filter(!is.na(age), !is.na(composite_pre)) |>
+      ggplot(aes(age, composite_pre, color = ae_status)) +
+      geom_point(alpha = 0.65) +
+      geom_smooth(method = "lm", formula = y ~ x, se = TRUE, color = "#263238") +
+      scale_color_manual(values = c(yes = "#2878a8", no = "#7a8793", unknown = "#d28b28")) +
+      labs(x = "Age (years)", y = "Baseline joint composite", color = "AE status") +
+      theme_minimal(base_size = 12)
+    ggplotly(p)
+  })
+
+  output$composite_age_change_plot <- renderPlotly({
+    p <- composite_scores |>
+      filter(!is.na(age), !is.na(composite_change)) |>
+      ggplot(aes(age, composite_change, color = ae_status)) +
+      geom_hline(yintercept = 0, color = "#475569", linetype = 2) +
+      geom_point(alpha = 0.65) +
+      geom_smooth(method = "lm", formula = y ~ x, se = TRUE, color = "#263238") +
+      scale_color_manual(values = c(yes = "#2878a8", no = "#7a8793", unknown = "#d28b28")) +
+      labs(x = "Age (years)", y = "Joint composite change", color = "AE status") +
+      theme_minimal(base_size = 12)
+    ggplotly(p)
+  })
+
+  composite_table_options <- list(dom = "Bfrtip", buttons = c("copy", "csv", "excel"), pageLength = 10, scrollX = TRUE)
+
+  output$composite_definition_table <- renderDT({
+    datatable(composite_definition, options = list(dom = "t"), rownames = FALSE, colnames = c("Component", "Specification"))
+  })
+
+  output$composite_ae_table <- renderDT({
+    composite_ae_tests |>
+      select(analysis, n_yes, n_no, median_iqr_yes, median_iqr_no, p_value, p_fdr, rank_biserial_r, effect_magnitude) |>
+      datatable(options = composite_table_options, rownames = FALSE) |>
+      formatRound(c("p_value", "p_fdr", "rank_biserial_r"), digits = 3)
+  })
+
+  output$composite_age_table <- renderDT({
+    composite_age_correlations |>
+      datatable(options = composite_table_options, rownames = FALSE) |>
+      formatRound(c("spearman_rho", "p_value", "p_fdr"), digits = 3)
+  })
+
+  output$composite_model_table <- renderDT({
+    composite_models |>
+      datatable(options = composite_table_options, rownames = FALSE) |>
+      formatRound(c("estimate", "conf.low", "conf.high", "std.error", "statistic", "p.value", "p_fdr", "adjusted_r_squared"), digits = 3)
+  })
+
+  output$composite_reliability_table <- renderDT({
+    composite_reliability |>
+      datatable(options = list(dom = "t"), rownames = FALSE) |>
+      formatRound("cronbach_alpha", digits = 3)
+  })
+
+  output$composite_descriptive_table <- renderDT({
+    composite_descriptives |>
+      datatable(options = composite_table_options, rownames = FALSE)
   })
 
   output$key_difference_plot <- renderPlotly({
