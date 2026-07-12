@@ -278,6 +278,26 @@ ui <- dashboardPage(
       .figure-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
       .research-caption { color: #667085; font-size: 12px; line-height: 1.45; min-height: 34px; }
       .export-note { color: #475467; margin-left: 10px; }
+      .research-table-guide { color: #475467; margin: 0 0 10px; }
+      .rq-column-title { white-space: nowrap; }
+      .rq-header-help {
+        width: 18px;
+        height: 18px;
+        margin-left: 4px;
+        padding: 0;
+        border: 1px solid #78909c;
+        border-radius: 50%;
+        background: #ffffff;
+        color: #155e75;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 15px;
+        text-align: center;
+        vertical-align: middle;
+      }
+      .rq-header-help:hover, .rq-header-help:focus { background: #e7f4f7; outline: none; }
+      .popover { max-width: 300px; }
+      .popover-content { line-height: 1.4; }
     "))),
     tabItems(
       tabItem(
@@ -319,7 +339,14 @@ ui <- dashboardPage(
                     p("Primary outcome: PRE Item 6. Supporting analyses: all nine PRE items, the wellbeing composite, and the Items 5-6 distress subscale.")),
                 research_figure_box("Planned Figure 1", "rq_fig1", "Baseline Item 6 anxiety/fear by AE group, showing the full distribution and robust summaries."),
                 research_figure_box("Planned Figure 2", "rq_fig2", "Baseline nine-item wellbeing composite by AE group after reversing negatively directed Items 5 and 6."),
-                box(width = 12, title = "Table 2. PRE Item Scores by AE Group", status = "primary", solidHeader = TRUE, DTOutput("rq_table2")),
+                box(
+                  width = 12,
+                  title = "Table 2. PRE Item Scores by AE Group",
+                  status = "primary",
+                  solidHeader = TRUE,
+                  p(class = "research-table-guide", "Click a ? beside any column heading for a plain-language definition. All values are item-specific, so sample sizes may differ because of missing responses."),
+                  DTOutput("rq_table2")
+                ),
                 box(width = 12, title = "Prespecified Baseline Composite Tests", status = "primary", solidHeader = TRUE, DTOutput("rq_composite_table"))
               )
             ),
@@ -539,6 +566,19 @@ ui <- dashboardPage(
 )
 
 server <- function(input, output, session) {
+  research_header <- function(label, explanation) {
+    safe_label <- htmltools::htmlEscape(label, attribute = TRUE)
+    safe_explanation <- htmltools::htmlEscape(explanation, attribute = TRUE)
+    paste0(
+      "<span class='rq-column-title'>", htmltools::htmlEscape(label), "</span>",
+      "<button type='button' class='rq-header-help' tabindex='0' aria-label='Explain ",
+      safe_label, "' data-title='", safe_label, "' data-content='", safe_explanation,
+      "' onclick=\"event.stopPropagation(); var button=$(this); $('.rq-header-help').not(button).popover('hide'); ",
+      "button.popover({container:'body', placement:'auto top', trigger:'manual', title:button.attr('data-title'), ",
+      "content:button.attr('data-content')}).popover('toggle'); return false;\">?</button>"
+    )
+  }
+
   research_datatable <- function(data, page_length = 10) {
     datatable(
       data,
@@ -576,7 +616,73 @@ server <- function(input, output, session) {
   })
 
   output$rq_table2 <- renderDT({
-    research_datatable(baseline_tests)
+    display_data <- baseline_tests |>
+      transmute(
+        item,
+        label,
+        direction = dplyr::recode(direction, higher_better = "Higher = better", higher_worse = "Higher = worse"),
+        primary_focus = dplyr::case_when(
+          item == 6 ~ "Yes - primary anxiety outcome",
+          item == 5 ~ "Yes - related distress outcome",
+          TRUE ~ "No"
+        ),
+        n_yes,
+        n_no,
+        median_iqr_yes,
+        median_iqr_no,
+        statistic,
+        p_value,
+        rank_biserial_r,
+        test_note = "Mann-Whitney U test; asymptotic p-value used because responses contain ties.",
+        p_fdr,
+        effect_size_interpretation
+      )
+
+    headers <- c(
+      research_header("Item", "Question number in the nine paired PRE/POST questionnaire."),
+      research_header("Outcome statement", "The exact questionnaire item being compared at PRE (before the program)."),
+      research_header("Scale direction", "How to read higher raw scores. Items 5 and 6 are negatively worded, so a higher score means more difficulty or distress."),
+      research_header("Primary focus in plan", "Yes marks the two distress-focused items highlighted in the original plan. Item 6 is the single primary anxiety/fear outcome; Item 5 is a related distress outcome."),
+      research_header("AE yes, n", "Number of AE-yes participants with a non-missing PRE score for this item."),
+      research_header("AE no, n", "Number of AE-no participants with a non-missing PRE score for this item."),
+      research_header("AE yes median (IQR)", "Median PRE score in the AE-yes group. The interquartile range (IQR) gives the middle 50% of scores."),
+      research_header("AE no median (IQR)", "Median PRE score in the AE-no group. The interquartile range (IQR) gives the middle 50% of scores."),
+      research_header("Mann-Whitney U", "Rank-based test statistic comparing the two independent AE groups. It is reported for reproducibility, not as an effect size."),
+      research_header("Raw p", "Unadjusted p-value for this individual item comparison."),
+      research_header("Rank-biserial r", "Effect size for the AE-yes versus AE-no comparison. Positive values indicate relatively higher raw scores in AE-yes; negative values indicate relatively lower raw scores."),
+      research_header("Test note", "Method note. The analysis uses an asymptotic Mann-Whitney p-value because the bounded Likert responses contain ties."),
+      research_header("BH FDR q", "Benjamini-Hochberg false-discovery-rate adjusted p-value across all nine planned baseline item tests. Values below .05 are FDR-supported within this family."),
+      research_header("Effect magnitude", "Magnitude label for the absolute rank-biserial effect: below .10 negligible, .10-.29 small, .30-.49 medium, and .50 or above large.")
+    )
+
+    datatable(
+      display_data,
+      rownames = FALSE,
+      filter = "top",
+      escape = FALSE,
+      colnames = headers,
+      extensions = "Buttons",
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE,
+        autoWidth = FALSE,
+        dom = "Bfrtip",
+        buttons = c("copy", "csv", "excel"),
+        columnDefs = list(
+          list(width = "55px", targets = 0),
+          list(width = "230px", targets = 1),
+          list(width = "125px", targets = 2),
+          list(width = "185px", targets = 3),
+          list(width = "70px", targets = c(4, 5)),
+          list(width = "145px", targets = c(6, 7)),
+          list(width = "95px", targets = 8),
+          list(width = "80px", targets = c(9, 10, 12, 13)),
+          list(width = "185px", targets = 11)
+        )
+      )
+    ) |>
+      formatRound(c("statistic"), digits = 1) |>
+      formatSignif(c("p_value", "rank_biserial_r", "p_fdr"), digits = 3)
   })
 
   output$rq_composite_table <- renderDT({
