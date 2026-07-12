@@ -162,10 +162,11 @@ research_figure_box <- function(title, output_id, caption, width = 6, height = "
 
 ui <- dashboardPage(
   skin = "black",
-  dashboardHeader(title = "Marina Analysis Suite"),
+  dashboardHeader(title = "Epicenter data analysis suite"),
   dashboardSidebar(
     sidebarMenu(
       menuItem("Overview", tabName = "overview", icon = icon("chart-pie")),
+      menuItem("Plain-Language Summary", tabName = "summary", icon = icon("file-lines")),
       menuItem("Research Questions", tabName = "research", icon = icon("file-lines")),
       menuItem("Cleaning", tabName = "cleaning", icon = icon("broom")),
       menuItem("Distributions", tabName = "distributions", icon = icon("chart-area")),
@@ -298,6 +299,10 @@ ui <- dashboardPage(
       .rq-header-help:hover, .rq-header-help:focus { background: #e7f4f7; outline: none; }
       .popover { max-width: 300px; }
       .popover-content { line-height: 1.4; }
+      .summary-page { max-width: 980px; }
+      .summary-page h3 { margin-top: 20px; font-weight: 700; color: #173b32; }
+      .summary-page p, .summary-page li { font-size: 15px; line-height: 1.55; color: #344054; }
+      .summary-page .summary-lead { font-size: 17px; color: #173b32; }
     "))),
     tabItems(
       tabItem(
@@ -310,6 +315,18 @@ ui <- dashboardPage(
           box(width = 6, title = "AE Status", status = "primary", solidHeader = TRUE, plotlyOutput("ae_status_plot")),
           box(width = 6, title = "Age Group", status = "primary", solidHeader = TRUE, plotlyOutput("age_group_plot")),
           box(width = 12, title = "Sample Characteristics", status = "primary", DTOutput("sample_table"))
+        )
+      ),
+      tabItem(
+        tabName = "summary",
+        if (nrow(research_answers) == 0) empty_panel() else fluidRow(
+          box(
+            width = 12,
+            title = "Plain-Language Analysis Overview",
+            status = "success",
+            solidHeader = TRUE,
+            tags$div(class = "summary-page", uiOutput("plain_language_writeup"))
+          )
         )
       ),
       tabItem(
@@ -557,8 +574,34 @@ ui <- dashboardPage(
       tabItem(
         tabName = "sensitivity",
         if (nrow(sensitivity_baseline) == 0) empty_panel() else fluidRow(
-          box(width = 12, title = "Baseline Item Sensitivity: Unknown AE Recode", status = "primary", solidHeader = TRUE, DTOutput("sensitivity_baseline_table")),
-          box(width = 12, title = "Pre-Post Change Sensitivity: Unknown AE Recode", status = "primary", solidHeader = TRUE, DTOutput("sensitivity_change_table"))
+          box(
+            width = 12,
+            title = "What This Sensitivity Check Does",
+            status = "primary",
+            solidHeader = TRUE,
+            tags$div(
+              class = "research-lead",
+              p("The primary AE comparisons exclude participants recorded as '?'/unknown. This page deliberately reruns those comparisons twice: first treating every unknown record as AE-no, then treating every unknown record as AE-yes."),
+              p("Use these checks to ask whether the conclusion depends on that unresolved coding decision. A result that appears only under one extreme recoding should be treated as fragile, not definitive.")
+            ),
+            uiOutput("sensitivity_summary")
+          ),
+          box(
+            width = 12,
+            title = "Baseline Item Sensitivity",
+            status = "primary",
+            solidHeader = TRUE,
+            p(class = "research-table-guide", "This table repeats the baseline AE comparisons after each possible unknown-AE recode. Click a ? beside any heading for a definition."),
+            DTOutput("sensitivity_baseline_table")
+          ),
+          box(
+            width = 12,
+            title = "PRE-to-POST Change Sensitivity",
+            status = "primary",
+            solidHeader = TRUE,
+            p(class = "research-table-guide", "This table repeats the AE-group change comparisons after each possible unknown-AE recode. Change is coded so positive values mean improvement. Click a ? beside any heading for a definition."),
+            DTOutput("sensitivity_change_table")
+          )
         )
       )
     )
@@ -593,6 +636,162 @@ server <- function(input, output, session) {
       )
     )
   }
+
+  sensitivity_datatable <- function(data, analysis_label) {
+    display_data <- data |>
+      transmute(
+        scenario = dplyr::recode(
+          scenario,
+          unknown_as_no = "Treat unknown AE as no",
+          unknown_as_yes = "Treat unknown AE as yes"
+        ),
+        item,
+        label,
+        scale_interpretation = if (analysis_label == "baseline") {
+          dplyr::recode(direction, higher_better = "Higher = better", higher_worse = "Higher = worse")
+        } else {
+          "Positive change = improvement"
+        },
+        n_yes,
+        n_no,
+        median_iqr_yes,
+        median_iqr_no,
+        statistic,
+        p_value,
+        rank_biserial_r,
+        p_fdr,
+        effect_magnitude = dplyr::case_when(
+          is.na(rank_biserial_r) ~ "Not estimable",
+          abs(rank_biserial_r) < 0.1 ~ "Negligible",
+          abs(rank_biserial_r) < 0.3 ~ "Small",
+          abs(rank_biserial_r) < 0.5 ~ "Medium",
+          TRUE ~ "Large"
+        )
+      )
+
+    summary_label <- if (analysis_label == "baseline") "median PRE score (IQR)" else "median improvement-coded change (IQR)"
+    headers <- c(
+      research_header("Unknown-AE scenario", "How the analysis temporarily classifies participants recorded as AE-unknown. These are deliberately extreme alternatives, not verified classifications."),
+      research_header("Item", "Question number in the nine paired PRE/POST questionnaire."),
+      research_header("Outcome statement", "The questionnaire item being compared."),
+      research_header("How to read the score", if (analysis_label == "baseline") "For baseline scores, this states whether a higher raw score is better or worse." else "For change scores, positive always means improvement because negatively worded Items 5 and 6 were reversed before calculating change."),
+      research_header("AE yes, n", "Number of participants assigned to the AE-yes group under this scenario with usable data for this item."),
+      research_header("AE no, n", "Number of participants assigned to the AE-no group under this scenario with usable data for this item."),
+      research_header(paste0("AE yes ", summary_label), "Robust summary for the group assigned AE-yes under this scenario. IQR is the middle 50% of observations."),
+      research_header(paste0("AE no ", summary_label), "Robust summary for the group assigned AE-no under this scenario. IQR is the middle 50% of observations."),
+      research_header("Mann-Whitney U", "Rank-based test statistic comparing the two scenario-defined groups. It is reported for reproducibility, not as an effect size."),
+      research_header("Raw p", "Unadjusted p-value for this item and this scenario."),
+      research_header("Rank-biserial r", "Effect size. Positive values mean relatively higher scores or greater improvement in the scenario-defined AE-yes group; negative values mean the opposite."),
+      research_header("BH FDR q", "Benjamini-Hochberg false-discovery-rate adjusted p-value across the nine item tests within this scenario. Values below .05 are FDR-supported within that scenario."),
+      research_header("Effect magnitude", "Magnitude of the absolute rank-biserial effect: below .10 negligible, .10-.29 small, .30-.49 medium, and .50 or above large.")
+    )
+
+    datatable(
+      display_data,
+      rownames = FALSE,
+      filter = "top",
+      escape = FALSE,
+      colnames = headers,
+      extensions = "Buttons",
+      options = list(
+        pageLength = 18,
+        scrollX = TRUE,
+        autoWidth = FALSE,
+        dom = "Bfrtip",
+        buttons = c("copy", "csv", "excel"),
+        columnDefs = list(
+          list(width = "190px", targets = 0),
+          list(width = "55px", targets = 1),
+          list(width = "220px", targets = 2),
+          list(width = "150px", targets = 3),
+          list(width = "70px", targets = c(4, 5)),
+          list(width = "170px", targets = c(6, 7)),
+          list(width = "95px", targets = 8),
+          list(width = "80px", targets = c(9, 10, 11, 12))
+        )
+      )
+    ) |>
+      formatRound("statistic", digits = 1) |>
+      formatSignif(c("p_value", "rank_biserial_r", "p_fdr"), digits = 3)
+  }
+
+  output$plain_language_writeup <- renderUI({
+    n_total <- nrow(participants)
+    n_ae_yes <- sum(participants$ae_status == "yes", na.rm = TRUE)
+    n_ae_no <- sum(participants$ae_status == "no", na.rm = TRUE)
+    n_ae_unknown <- sum(participants$ae_status == "unknown", na.rm = TRUE)
+    supported_change <- prepost_tests |> filter(!is.na(p_fdr), p_fdr < 0.05)
+
+    tagList(
+      p(
+        class = "summary-lead",
+        "This is a plain-language account of the current analysis outputs. It is regenerated from the processed data and the scripted results, so it should be read as a snapshot of the most recently run pipeline."
+      ),
+      tags$h3("What Was Studied"),
+      p(
+        paste0(
+          "The analysis includes ", n_total, " participant records: ", n_ae_yes,
+          " coded AE-yes, ", n_ae_no, " coded AE-no, and ", n_ae_unknown,
+          " recorded as uncertain. The main comparisons follow the plan by comparing AE-yes with AE-no participants, while the uncertain group is examined separately in sensitivity checks."
+        )
+      ),
+      tags$h3("What the Three Main Questions Show"),
+      tagList(lapply(seq_len(nrow(research_answers)), function(i) {
+        row <- research_answers[i, , drop = FALSE]
+        tags$div(
+          class = "research-answer",
+          tags$h4(paste0(row$question_id, ". ", row$research_question)),
+          tags$p(class = "answer-conclusion", row$conclusion),
+          tags$p(row$primary_result)
+        )
+      })),
+      tags$h3("Overall Interpretation"),
+      p(
+        paste0(
+          "The clearest pattern in this dataset is an overall pre-to-post improvement on ",
+          nrow(supported_change), " of the nine planned outcomes after correcting for multiple tests. ",
+          "The data do not provide corresponding corrected evidence that AE-yes and AE-no participants began with different anxiety/fear scores or changed differently over the program."
+        )
+      ),
+      tags$h3("What This Does Not Establish"),
+      tags$ul(
+        tags$li("The pre-to-post changes cannot be attributed solely to the program because there is no untreated comparison group."),
+        tags$li("The AE comparisons are observational: AE status was identified informally and was not randomly assigned."),
+        tags$li("The questionnaire does not directly measure depression, and the anxiety/fear result is based on a single non-standardized item."),
+        tags$li("The sizable uncertain-AE group remains an important source of uncertainty; the Sensitivity tab shows how extreme recoding assumptions affect the results.")
+      ),
+      tags$h3("Practical Bottom Line"),
+      p("For a writeup, I would report the overall improvement signal cautiously, make the uncertainty around causal attribution explicit, and describe the absence of FDR-supported AE-group differences rather than presenting it as evidence that anomalous experiences have no relationship to outcomes. Better AE ascertainment, a defined comparison condition, and final resolution of the uncertain records would materially strengthen a future study.")
+    )
+  })
+
+  output$sensitivity_summary <- renderUI({
+    n_unknown <- sum(participants$ae_status == "unknown", na.rm = TRUE)
+    baseline_supported <- sensitivity_baseline |> filter(!is.na(p_fdr), p_fdr < 0.05)
+    change_supported <- sensitivity_change |> filter(!is.na(p_fdr), p_fdr < 0.05)
+
+    summary_text <- if (nrow(baseline_supported) == 0 && nrow(change_supported) == 0) {
+      "Across both extreme recodings, no baseline item and no PRE-to-POST change item reaches BH FDR < .05. In the current data, the broad conclusion of no corrected AE-group signal is therefore not driven solely by excluding the uncertain-AE group."
+    } else {
+      paste0(
+        "At least one result reaches BH FDR < .05 under an extreme unknown-AE recoding. Inspect the scenario, item, and effect size carefully: a finding that appears under only one recoding is sensitive to an unresolved classification decision."
+      )
+    }
+
+    tagList(
+      div(
+        class = "interpretation-card",
+        h4("What the page says in the current data"),
+        p(summary_text),
+        tags$div(class = "interpretation-meta", paste0(n_unknown, " participants are currently coded AE-unknown."))
+      ),
+      div(
+        class = "interpretation-card",
+        h4("How to interpret a stable result"),
+        p("A result is more robust when its direction and inference are similar under both recoding scenarios. Stability does not turn the observational comparison into causal evidence; it only reduces dependence on the unknown-AE coding choice.")
+      )
+    )
+  })
 
   output$rq_answer_cards <- renderUI({
     tagList(lapply(seq_len(nrow(research_answers)), function(i) {
@@ -1448,11 +1647,11 @@ server <- function(input, output, session) {
   })
 
   output$sensitivity_baseline_table <- renderDT({
-    sensitivity_baseline |> datatable(filter = "top", options = list(pageLength = 18, scrollX = TRUE), rownames = FALSE)
+    sensitivity_datatable(sensitivity_baseline, "baseline")
   })
 
   output$sensitivity_change_table <- renderDT({
-    sensitivity_change |> datatable(filter = "top", options = list(pageLength = 18, scrollX = TRUE), rownames = FALSE)
+    sensitivity_datatable(sensitivity_change, "change")
   })
 }
 
