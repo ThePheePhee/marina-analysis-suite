@@ -80,6 +80,14 @@ composite_age_correlations <- read_optional_csv(project_file("outputs", "tables"
 composite_models <- read_optional_csv(project_file("outputs", "tables", "composite_score_models.csv"))
 composite_reliability <- read_optional_csv(project_file("outputs", "tables", "composite_score_reliability.csv"))
 research_tables_workbook <- project_file("outputs", "tables", "research_questions_all_tables.xlsx")
+manuscript_sections <- read_optional_csv(project_file("outputs", "tables", "manuscript_document_sections.csv"))
+manuscript_item_changes <- read_optional_csv(project_file("outputs", "tables", "manuscript_item_change_summary.csv"))
+manuscript_post_ae <- read_optional_csv(project_file("outputs", "tables", "manuscript_post_ae_tests.csv"))
+manuscript_post_ancova <- read_optional_csv(project_file("outputs", "tables", "manuscript_post_ancova.csv"))
+manuscript_age_models <- read_optional_csv(project_file("outputs", "tables", "manuscript_age_change_models.csv"))
+manuscript_crosscheck <- read_optional_csv(project_file("outputs", "tables", "manuscript_crosscheck.csv"))
+methods_outline_docx <- project_file("outputs", "manuscript", "Epicenter_methods_results_outline.docx")
+calculation_audit_docx <- project_file("outputs", "manuscript", "Epicenter_calculation_audit.docx")
 
 has_data <- nrow(participants) > 0 && nrow(item_long) > 0
 
@@ -170,11 +178,13 @@ research_figure_box <- function(title, output_id, caption, width = 6, height = "
 
 ui <- dashboardPage(
   skin = "black",
-  dashboardHeader(title = "Epicenter data analysis suite"),
+  dashboardHeader(title = "Epicenter data analysis suite", titleWidth = 300),
   dashboardSidebar(
+    width = 300,
     sidebarMenu(
       menuItem("Overview", tabName = "overview", icon = icon("chart-pie")),
       menuItem("Plain-Language Summary", tabName = "summary", icon = icon("file-lines")),
+      menuItem("Manuscript Support", tabName = "manuscript", icon = icon("file-pen")),
       menuItem("Research Questions", tabName = "research", icon = icon("file-lines")),
       menuItem("Cleaning", tabName = "cleaning", icon = icon("broom")),
       menuItem("Distributions", tabName = "distributions", icon = icon("chart-area")),
@@ -312,6 +322,25 @@ ui <- dashboardPage(
       .summary-page h3 { margin-top: 20px; font-weight: 700; color: #173b32; }
       .summary-page p, .summary-page li { font-size: 15px; line-height: 1.55; color: #344054; }
       .summary-page .summary-lead { font-size: 17px; color: #173b32; }
+      .manuscript-document { max-width: 1040px; margin: 0 auto; padding: 10px 18px 24px; }
+      .manuscript-document h3 { margin: 24px 0 8px; color: #1f4d78; font-weight: 700; }
+      .manuscript-document p, .manuscript-document li { font-size: 15px; line-height: 1.58; color: #344054; }
+      .manuscript-document pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        border: 1px solid #d8dee8;
+        background: #f7f9fb;
+        color: #243746;
+        padding: 12px;
+      }
+      .manuscript-callout {
+        border-left: 4px solid #2e74b5;
+        background: #f2f6fa;
+        padding: 13px 15px;
+        margin: 12px 0 18px;
+      }
+      .manuscript-callout h3 { margin-top: 0; }
+      .audit-pass { color: #176b45; font-weight: 700; }
     "))),
     tabItems(
       tabItem(
@@ -335,6 +364,54 @@ ui <- dashboardPage(
             status = "success",
             solidHeader = TRUE,
             tags$div(class = "summary-page", uiOutput("plain_language_writeup"))
+          )
+        )
+      ),
+      tabItem(
+        tabName = "manuscript",
+        if (nrow(manuscript_sections) == 0) empty_panel() else fluidRow(
+          box(
+            width = 12,
+            title = "Manuscript and Calculation Support",
+            status = "primary",
+            solidHeader = TRUE,
+            tags$div(
+              class = "research-lead",
+              p("These materials are generated from the latest processed data. Rerun scripts/run_all.R after any data correction, then restart the dashboard to refresh the text, values, audit checks, and downloadable Word documents."),
+              p("The outline distinguishes observed associations from causal claims. The calculation audit provides formulas, R commands, expected values, and an independent reconciliation against the main pipeline outputs.")
+            )
+          ),
+          tabsetPanel(
+            id = "manuscript_documents",
+            tabPanel(
+              "Methods & Results Outline",
+              box(
+                width = 12,
+                title = "Scientific Write-up Outline",
+                status = "success",
+                solidHeader = TRUE,
+                downloadButton("download_methods_outline", "Download Word document", icon = icon("file-word")),
+                tags$span(class = "export-note", "Tables below can also be exported directly."),
+                tags$div(class = "manuscript-document", uiOutput("manuscript_methods_text"))
+              ),
+              box(width = 12, title = "Manuscript Item-Level Results", status = "primary", solidHeader = TRUE, DTOutput("manuscript_item_table")),
+              box(width = 12, title = "Raw POST Scores by AE Group", status = "primary", solidHeader = TRUE, DTOutput("manuscript_post_ae_table")),
+              box(width = 12, title = "Adjusted Age Associations with Change", status = "primary", solidHeader = TRUE, DTOutput("manuscript_age_table"))
+            ),
+            tabPanel(
+              "Calculation Audit",
+              box(
+                width = 12,
+                title = "Manual Reproduction and Cross-check Guide",
+                status = "warning",
+                solidHeader = TRUE,
+                downloadButton("download_calculation_audit", "Download Word document", icon = icon("file-word")),
+                uiOutput("manuscript_audit_status"),
+                tags$div(class = "manuscript-document", uiOutput("manuscript_audit_text"))
+              ),
+              box(width = 12, title = "Independent Pipeline Reconciliation", status = "primary", solidHeader = TRUE, DTOutput("manuscript_crosscheck_table")),
+              box(width = 12, title = "Adjusted POST Models: PRE + Age + AE", status = "primary", solidHeader = TRUE, DTOutput("manuscript_post_ancova_table"))
+            )
           )
         )
       ),
@@ -748,6 +825,96 @@ server <- function(input, output, session) {
       formatRound("statistic", digits = 1) |>
       formatSignif(c("p_value", "rank_biserial_r", "p_fdr"), digits = 3)
   }
+
+  manuscript_section_ui <- function(document_name) {
+    sections <- manuscript_sections |>
+      filter(document == document_name) |>
+      arrange(section_order)
+
+    if (nrow(sections) == 0) return(p("No manuscript sections are available."))
+
+    tagList(lapply(seq_len(nrow(sections)), function(i) {
+      row <- sections[i, , drop = FALSE]
+      heading <- as.character(row$heading[[1]])
+      body <- as.character(row$body[[1]])
+      kind <- as.character(row$kind[[1]])
+
+      content <- switch(
+        kind,
+        bullets = tags$ul(lapply(strsplit(body, "\\r?\\n")[[1]], function(x) tags$li(trimws(x)))),
+        code = tags$pre(body),
+        tagList(lapply(strsplit(body, "\\r?\\n\\r?\\n")[[1]], function(x) p(trimws(x))))
+      )
+
+      if (kind == "callout") {
+        tags$div(class = "manuscript-callout", tags$h3(heading), content)
+      } else {
+        tagList(tags$h3(heading), content)
+      }
+    }))
+  }
+
+  output$manuscript_methods_text <- renderUI({
+    manuscript_section_ui("methods")
+  })
+
+  output$manuscript_audit_text <- renderUI({
+    manuscript_section_ui("audit")
+  })
+
+  output$manuscript_audit_status <- renderUI({
+    n_checks <- nrow(manuscript_crosscheck)
+    n_pass <- sum(manuscript_crosscheck$status == "PASS", na.rm = TRUE)
+    n_fail <- sum(manuscript_crosscheck$status != "PASS", na.rm = TRUE)
+    tags$div(
+      class = if (n_fail == 0) "interpretation-card audit-pass" else "interpretation-card",
+      paste0(n_pass, " of ", n_checks, " independent numerical checks pass; ", n_fail, " fail.")
+    )
+  })
+
+  output$manuscript_item_table <- renderDT({
+    research_datatable(manuscript_item_changes, page_length = 9)
+  })
+
+  output$manuscript_post_ae_table <- renderDT({
+    research_datatable(manuscript_post_ae, page_length = 9)
+  })
+
+  output$manuscript_post_ancova_table <- renderDT({
+    research_datatable(manuscript_post_ancova, page_length = 9)
+  })
+
+  output$manuscript_age_table <- renderDT({
+    research_datatable(manuscript_age_models, page_length = 9)
+  })
+
+  output$manuscript_crosscheck_table <- renderDT({
+    table <- research_datatable(manuscript_crosscheck, page_length = 25)
+    if ("status" %in% names(manuscript_crosscheck)) {
+      table <- table |> formatStyle(
+        "status",
+        color = styleEqual(c("PASS", "FAIL"), c("#176b45", "#a12626")),
+        fontWeight = "bold"
+      )
+    }
+    table
+  })
+
+  output$download_methods_outline <- downloadHandler(
+    filename = function() "Epicenter_methods_results_outline.docx",
+    content = function(file) {
+      validate(need(file.exists(methods_outline_docx), "Run scripts/build_manuscript_documents.py first."))
+      file.copy(methods_outline_docx, file, overwrite = TRUE)
+    }
+  )
+
+  output$download_calculation_audit <- downloadHandler(
+    filename = function() "Epicenter_calculation_audit.docx",
+    content = function(file) {
+      validate(need(file.exists(calculation_audit_docx), "Run scripts/build_manuscript_documents.py first."))
+      file.copy(calculation_audit_docx, file, overwrite = TRUE)
+    }
+  )
 
   output$plain_language_writeup <- renderUI({
     n_total <- nrow(participants)

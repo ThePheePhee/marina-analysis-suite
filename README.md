@@ -11,6 +11,7 @@ marina-analysis-suite/
   data/processed/       Cleaned analysis files; gitignored by default
   docs/                 Analysis-plan notes and cleaning log
   outputs/figures/      Generated plots
+  outputs/manuscript/   Generated private Word manuscript-support files
   outputs/tables/       Generated CSV tables
   R/                    Reusable functions and metadata
   scripts/              Numbered analysis pipeline scripts
@@ -56,6 +57,8 @@ source("scripts/07_key_differences.R")
 source("scripts/08_observations.R")
 source("scripts/09_ae_relationship_atlas.R")
 source("scripts/10_research_questions.R")
+source("scripts/11_composite_scores.R")
+source("scripts/12_manuscript_support.R")
 ```
 
 Or run everything:
@@ -70,7 +73,9 @@ On this Windows machine, R was found at:
 & 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe' scripts/run_all.R
 ```
 
-Outputs are written to `data/processed/`, `outputs/tables/`, and `outputs/figures/`.
+Outputs are written to `data/processed/`, `outputs/tables/`, `outputs/figures/`, and `outputs/manuscript/`.
+
+The full runner also rebuilds the two Word manuscript-support documents when it can find Python with `python-docx`. It checks the Codex bundled runtime automatically. On another machine, install `python-docx` and optionally point `EPICENTER_PYTHON` to that Python executable.
 
 ## Launch the Dashboard
 
@@ -80,7 +85,14 @@ After running `01_import_clean.R` at minimum:
 shiny::runApp("app")
 ```
 
-The app displays cleaning flags, sample characteristics, item distributions, primary baseline comparisons, direction-explicit AE change contrasts, a research-question page aligned to the original analysis plan with manuscript-ready exports, a 145-observation AE Relationship Atlas with expandable calculation details, an Overall Signal synthesis, AE type/verification summaries, and sensitivity-analysis outputs when available.
+The app displays cleaning flags, sample characteristics, item distributions, primary baseline comparisons, direction-explicit AE change contrasts, a research-question page aligned to the original analysis plan with manuscript-ready exports, a 145-observation AE Relationship Atlas with expandable calculation details, an Overall Signal synthesis, AE type/verification summaries, sensitivity-analysis outputs, and manuscript support when available.
+
+The Manuscript Support page provides:
+
+- A dynamic Methods and Results outline covering the composite, item changes, PRE/POST/trajectory AE comparisons, age results, AE-classification sensitivity, and the three original research questions.
+- A separate calculation audit with formulas, runnable R checks, expected values, and independent reconciliation against the main pipeline.
+- Downloadable Word versions of both documents and CSV/Excel export controls for the underlying aggregate tables.
+- A fail-fast audit: manuscript generation stops if a reconstructed value disagrees with the pipeline outside the stated tolerance.
 
 The Research Questions page provides:
 
@@ -125,6 +137,7 @@ Current run checks:
 - AE status counts: yes = 54, no = 87, unknown = 45.
 - Missing participant IDs flagged exactly as planned: 59, 60, 115, 160.
 - Shiny dashboard smoke test returned HTTP 200 on localhost.
+- Manuscript audit checks: 119 PASS, 0 REVIEW, 0 FAIL.
 
 ## Human Review Required
 

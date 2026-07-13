@@ -24,4 +24,6 @@ renv/local/
 renv/staging/
 r-lib/
 project-docs/
+__pycache__/
+*.py[cod]
 *.log
